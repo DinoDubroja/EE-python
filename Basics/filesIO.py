@@ -1,6 +1,3 @@
-def separator(title):
-    print(f"\n=== {title} ===")
-
 # === File I/O and Context Managers Syntax ===
 # Demonstration of File I/O and Context Managers in Python
 
