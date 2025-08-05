@@ -85,19 +85,41 @@ class SDS1104XE:
         self.inst.write(f"C{channel}:VDIV {range}")
         time.sleep(0.1)
     
-    def get_waveform(self,channel: int):
-        self.inst.write(f"C{channel}:WF? DAT2")
-        time.sleep(0.1)
-        raw = list(self.inst.read_raw())[16:]
 
-        for i in range(len(raw)):
-            if raw[i] > 127:
-                raw[i] -= 255
+    def get_raw(self, channel: int) -> list[int]:
+        """
+        Fetch the full 8-bit signed waveform record for C{channel}.
 
-        raw.pop()
+        Uses:
+        • CHDR OFF       — suppress text headers so the first byte is '#'
+        • WFSU SP,0,NP,0,FP,0 — request every point, from the first sample on
+        • <trace>:WF? DAT2 — retrieve the binary block of raw data
+        Returns:
+        List of signed ints in –128…+127 ready for scaling.
+        """
+        if channel not in (1, 2, 3, 4):
+            raise ValueError("Channel must be 1–4.")
+
+        # Turn off the ASCII header so '#...' is at the very start
+        self.inst.write("CHDR OFF")
+
+        # Ask for every point in the buffer, no sparsing
+        self.inst.write("WFSU SP,0,NP,0,FP,0")
+
+        self.inst.clear()
+
+        # Grab 8-bit data from the instrument
+        raw_codes = self.inst.query_binary_values(
+            f"C{channel}:WF? DAT2",
+            datatype='b',        # 'b' = signed 8-bit integers
+            container=list       # return as a Python list
+        )
+
+        return raw_codes
+       
+
+
         
-        return raw
-
     def get_waveform_chinese(self,channel: int):
 
         self.inst.write(f"CHDR OFF")
