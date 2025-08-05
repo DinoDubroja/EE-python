@@ -1,4 +1,4 @@
-from psu import PSU
+from .psu import PSU
 
 class SDS3303X(PSU):
     """

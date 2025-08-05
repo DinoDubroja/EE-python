@@ -71,53 +71,5 @@ class SDG2122X:
         Return the instrument ID string.
         """
         return self.inst.query("*IDN?").strip()
-
-
-            
-    def query_waveform(self, channel: int = 1) -> str:
-        """
-        Read back the current basic waveform settings.
-        """
-        return self.inst.query(f"C{channel}:BSWV?").strip()
-    
-    
-
-    def sweep(
-        self,
-        start_freq: float,
-        stop_freq: float,
-        sweep_time: float,
-        mode: str = "LINE",
-        direction: str = "UP",
-        channel: int = 1
-    ):
-        """
-        Configure a frequency sweep on the specified channel.
-        SCPI:
-          C{n}:SWWV START,{start_freq},STOP,{stop_freq},
-                   TIME,{sweep_time},SWMD,{mode},DIR,{direction}
-        See Section 3.6 :contentReference[oaicite:39]{index=39}
-        """
-        cmd = (f"C{channel}:SWWV START,{start_freq},STOP,{stop_freq},"
-               f"TIME,{sweep_time},SWMD,{mode},DIR,{direction}")
-        self.inst.write(cmd)
-
-
-
-    def configure_burst(
-        self,
-        period: float,
-        cycles: int,
-        channel: int = 1
-    ):
-        """
-        Configure a burst on the specified channel.
-        SCPI:
-          C{n}:BTWV PRD,{period},TIME,{cycles}
-        See Section 3.7 :contentReference[oaicite:41]{index=41}
-        """
-        self.inst.write(f"C{channel}:BTWV PRD,{period},TIME,{cycles}")
-
-    
     
     

@@ -1,4 +1,4 @@
-
+import time
 
 def set_output(
         self,
@@ -82,7 +82,9 @@ def waveform(
             raise ValueError(f"Invalid wave type '{wave_type}'. Must be one of: "
                              "SINE, SQUARE, RAMP, PULSE, DC, NOISE, ARB.")
         else:
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV WVTP,{wave_type}")
+            time.sleep(0.1)
         
         # Frequency and period
         if frequency == None and period == None:
@@ -94,9 +96,13 @@ def waveform(
         elif period is not None and period <= 0:
             raise ValueError("Period must be a positive number.")
         elif frequency is not None:
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV FRQ,{frequency}")
+            time.sleep(0.1)
         elif period is not None:
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV PERI,{period}")
+            time.sleep(0.1)
 
         # Amplitude and offset
         if high_level is not None and low_level is not None:
@@ -108,31 +114,45 @@ def waveform(
         if amplitude == None and amplitude_rms == None and amplitude_dbm == None:
             raise ValueError("One of amplitude, amplitude_rms, or amplitude_dbm must be specified.")
         elif amplitude is not None:
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV AMP,{amplitude}")
+            time.sleep(0.1)
         elif amplitude_rms is not None:
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV AMPVRMS,{amplitude_rms}")
+            time.sleep(0.1)
         elif amplitude_dbm is not None:
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV AMPDBM,{amplitude_dbm}")
+            time.sleep(0.1)
 
         if offset is not None:
-            self.inst.write(f"C{channel}:BSWV OFST,{offset}")   
+            time.sleep(0.1)
+            self.inst.write(f"C{channel}:BSWV OFST,{offset}")
+            time.sleep(0.1)   
 
         # Symmetry
         if symmetry is not None and wave_type == "RAMP":
             if not (0 <= symmetry <= 100):
                 raise ValueError("Symmetry must be between 0 and 100.")
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV SYM,{symmetry}")
+            time.sleep(0.1)
 
         # Duty cycle
         if duty_cycle is not None and wave_type == ("SQUARE" or "PULSE"):
             if not (0 <= duty_cycle <= 100):
                 raise ValueError("Duty cycle must be between 0 and 100.")
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV DUTY,{duty_cycle}")
+            time.sleep(0.1)
 
         # Phase
         if phase is not None:
             if not (0 <= phase < 360):
                 raise ValueError("Phase must be between 0 and 360 degrees.")
+            time.sleep(0.1)
             self.inst.write(f"C{channel}:BSWV PHSE,{phase}")
+            time.sleep(0.1)
 
         ## TO BE IMPLEMENTED   
