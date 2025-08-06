@@ -15,6 +15,8 @@ class SDS1104XE:
         self.inst.write_termination = '\n'
         self.inst.read_termination = '\n'
 
+        self.inst.write("CHDR OFF")
+
     def identify(self) -> str:
         """*IDN? → manufacturer,model,serial,firmware"""
         return self.inst.query("*IDN?").strip()
@@ -109,64 +111,91 @@ class SDS1104XE:
         self.inst.clear()
 
         # Grab 8-bit data from the instrument
-        raw_codes = self.inst.query_binary_values(
+        raw = self.inst.query_binary_values(
             f"C{channel}:WF? DAT2",
             datatype='b',        # 'b' = signed 8-bit integers
             container=list       # return as a Python list
         )
 
-        return raw_codes
+        self.inst.clear()
+
+        return raw
+    
+    def get_offset(self, channel: int) -> float:
+        """
+        Returns the offset voltage for channel C{channel}.
+        """
+        if channel not in (1, 2, 3, 4):
+            raise ValueError("Channel must be 1–4.")
+        return float(self.inst.query(f"C{channel}:OFST?"))
+    
+    def get_volts_div(self, channel: int):
+        """
+        Returns the volts per division (range) for selectedchannel.
+        """
+        if channel not in (1, 2, 3, 4):
+            raise ValueError("Channel must be 1–4.")
+        return float(self.inst.query(f"C{channel}:VDIV?"))
+    
+    def get_sample_rate(self) -> float:
+        """
+        Returns the sample rate for selected channel.
+        """
+        return float(self.inst.query(f"SARA?"))
+    
+    def get_time_div(self):
+        """
+        Returns the time per division (range) for selected channel in seconds.
+        """
+        return float(self.inst.query(f"TDIV?"))
+
+
+    def get_voltage(self, channel: int) -> list[float]:
+        """
+        Returns the voltage for selected channel.
+        """
+        raw    = self.get_raw(channel)           # e.g. [127, 126, ...]
+        vdiv   = self.get_volts_div(channel)     # e.g. 1.0 V/div
+        offset = self.get_offset(channel)        # e.g. 0.0 V
+
+        scale = vdiv / 25                        # per-code volts
+
+        volts = [
+            code * scale - offset
+            for code in raw
+        ]
+        return volts
+    
+    def get_number_of_samples(self, channel: int) -> int:
+        if channel not in (1, 2, 3, 4):
+            raise ValueError("Channel must be 1–4.")
+        return float(self.inst.query(f"SANU? C{channel}"))
+    
+    def get_time(self, channel: int) -> list[float]:
+        if channel not in (1, 2, 3, 4):
+            raise ValueError("Channel must be 1–4.")
+        
+        tdiv = self.get_time_div()
+        sample_rate = self.get_sample_rate()
+        t_0 = -(tdiv * 14) / 2
+        dt = 1 / sample_rate
+        times = []
+        times.append(t_0)
+
+        samples = self.get_number_of_samples(channel)
+        for i in range(1, int(samples)):
+            times.append(times[i-1] + dt)
+        return times
+            
+
+
+        
+
+        
        
 
 
-        
-    def get_waveform_chinese(self,channel: int):
-
-        self.inst.write(f"CHDR OFF")
-        time.sleep(0.1)
-
-        vdiv = self.inst.query(f"C{channel}:VDIV?")
-        time.sleep(0.1)
-        offset = self.inst.query(f"C{channel}:OFST?")
-        time.sleep(0.1)
-        tdiv = self.inst.query(f"TDIV?")
-        time.sleep(0.1)
-        sara = self.inst.query(f"SARA?")
-        time.sleep(0.1)
-        
-        
-
-        sara_unit = {'G':1e9, 'M':1e6, 'k':1e3}
-        for unit in sara_unit.keys():
-            if sara.find(unit) != -1:
-                sara = sara.split(unit)
-                sara = float(sara[0]) * sara_unit[unit]
-                break
-
-        sara = float(sara)
-
-        self.inst.write(f"C{channel}:WF? DAT2")
-        time.sleep(0.1)
-        raw = list(self.inst.read_raw())
-        raw.pop()
-        voltage = []
-        time_value = []
-
-        for data in raw:
-            if data > 127:
-                data = data - 255
-            else:
-                pass
-            voltage.append(data)
-        print(vdiv, offset, tdiv, sara)
-        
-        for n in range(0, len(voltage)):
-            voltage[n] = voltage[n] / 25*float(vdiv)-float(offset)
-            time_data = -(float(tdiv)*14/2)+n*(1/sara)
-            time_value.append(time_data)
-
-        
-        return voltage, time_value
+    
         
         
 
