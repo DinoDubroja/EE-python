@@ -3,11 +3,13 @@ from .psu import PSU
 class SDS3303X(PSU):
     """
     SDS3303X Power Supply Unit Interface
+    -------
     This class provides an interface to control and measure the SDS3303X programmable power supply.
     It allows setting voltage and current limits, configuring output modes, enabling/disabling output channels,
     and measuring voltage, current, and power on specified channels.
     Methods
-    -------
+
+    
     set_voltage(voltage: float, channel: int = 1)
         Set the voltage limit on the specified channel.
     set_current(current: float, channel: int = 1)

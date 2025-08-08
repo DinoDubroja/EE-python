@@ -10,6 +10,7 @@ Python examples and libraries for electrical engineering.
 
 ## 📝 To-Do
 
+- add triggering control for the SDS110XE
 - Bode plot library
 - SDS110XE demo notebook
 - Tidy up the documentation
