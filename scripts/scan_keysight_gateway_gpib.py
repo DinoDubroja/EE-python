@@ -37,6 +37,7 @@ Important:
 from __future__ import annotations
 
 import pyvisa
+from pyvisa.resources.gpib import GPIBCommand
 
 
 # Leave this empty to type the IP address when the script starts.
@@ -59,6 +60,15 @@ TRY_SCPI_IDN = False
 # local state if the VISA backend supports it. On older GPIB instruments and
 # gateways, closing the VISA session alone is sometimes not enough.
 RELEASE_TO_LOCAL_AFTER_PROBE = True
+
+# After a serial poll, explicitly disable serial-poll mode and unaddress the
+# bus. Some older instruments appear to remain in a bad communication state if
+# this is not done cleanly by the backend or gateway.
+SEND_SERIAL_POLL_CLEANUP = True
+
+# Small pause after bus cleanup. This gives the gateway and instrument a moment
+# to settle before the next access.
+POST_CLEANUP_DELAY_S = 0.05
 
 
 def ask_gateway_ip() -> str:
@@ -127,6 +137,44 @@ def release_probe_session(inst) -> None:
         pass
 
 
+def build_interface_resource_name(gateway_ip: str) -> str:
+    return f"TCPIP0::{gateway_ip}::gpib{GPIB_BUS}::INTFC"
+
+
+def cleanup_after_serial_poll(interface_resource) -> None:
+    """
+    Explicitly unwind serial-poll bus state.
+
+    Why this exists
+    ---------------
+    The HP 4192A appears to be sensitive to the serial-poll path used during a
+    GPIB scan. Even when the VISA session is closed, the instrument can stay in
+    a broken communication state until it is power-cycled.
+
+    This helper sends the low-level GPIB commands that should end a serial poll
+    and leave the bus unaddressed:
+
+    - SPD: serial poll disable
+    - UNT: untalk
+    - UNL: unlisten
+    """
+
+    if not SEND_SERIAL_POLL_CLEANUP:
+        return
+
+    if interface_resource is None or not hasattr(interface_resource, "send_command"):
+        return
+
+    try:
+        interface_resource.send_command(
+            GPIBCommand.serial_poll_disable
+            + GPIBCommand.untalk
+            + GPIBCommand.unlisten
+        )
+    except Exception:
+        pass
+
+
 def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
     """
     Scan one GPIB bus on the gateway.
@@ -136,8 +184,16 @@ def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
 
     results: list[dict[str, object]] = []
     resource_manager = pyvisa.ResourceManager()
+    interface_resource = None
 
     try:
+        try:
+            interface_resource = resource_manager.open_resource(
+                build_interface_resource_name(gateway_ip)
+            )
+        except Exception:
+            interface_resource = None
+
         for address in range(START_ADDRESS, END_ADDRESS + 1):
             resource_name = build_resource_name(gateway_ip, address)
             print(f"Checking address {address:02d}: {resource_name}")
@@ -166,12 +222,26 @@ def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
                 print("  No response.")
             finally:
                 if inst is not None:
+                    cleanup_after_serial_poll(interface_resource)
                     release_probe_session(inst)
                     try:
                         inst.close()
                     except Exception:
                         pass
+                    if POST_CLEANUP_DELAY_S > 0:
+                        import time
+
+                        time.sleep(POST_CLEANUP_DELAY_S)
     finally:
+        if interface_resource is not None:
+            try:
+                cleanup_after_serial_poll(interface_resource)
+            except Exception:
+                pass
+            try:
+                interface_resource.close()
+            except Exception:
+                pass
         resource_manager.close()
 
     return results
