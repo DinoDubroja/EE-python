@@ -13,8 +13,15 @@ It talks to the gateway directly through PyVISA.
 
 Safety choice
 -------------
-The default probe is a serial poll (`read_stb()`), not a device clear and not
-an arbitrary query command. That makes this script safer for older instruments.
+The default probe is a minimal write test, not a serial poll, not a device
+clear, and not an arbitrary query command.
+
+Why:
+
+- on this lab setup, serial poll through the gateway broke later communication
+  with the HP 4192A until the instrument was power-cycled
+- a minimal write probe gives up the status byte, but it is a better tradeoff
+  if it keeps the bus usable afterwards
 
 How to use
 ----------
@@ -36,8 +43,9 @@ Important:
 
 from __future__ import annotations
 
+import time
+
 import pyvisa
-from pyvisa.resources.gpib import GPIBCommand
 
 
 # Leave this empty to type the IP address when the script starts.
@@ -53,22 +61,36 @@ END_ADDRESS = 30
 # Timeout in milliseconds for each address check.
 TIMEOUT_MS = 1000
 
+# Probe method.
+#
+# "blank_write":
+#     Open the address and send a single linefeed byte. On a real listener this
+#     should complete. On an empty address it should fail with a no-listener /
+#     timeout style error. This is the default because serial poll broke the
+#     HP 4192A communication path in this setup.
+#
+# "serial_poll":
+#     Read the status byte. This is kept only as an optional fallback for other
+#     setups. It is not the default anymore.
+PROBE_METHOD = "blank_write"
+
 # Optional extra step for SCPI instruments only.
 TRY_SCPI_IDN = False
 
-# After probing one address, explicitly return the instrument to a released
-# local state if the VISA backend supports it. On older GPIB instruments and
-# gateways, closing the VISA session alone is sometimes not enough.
-RELEASE_TO_LOCAL_AFTER_PROBE = True
+# Byte sequence used by the blank-write probe.
+BLANK_WRITE_BYTES = b"\n"
 
-# After a serial poll, explicitly disable serial-poll mode and unaddress the
-# bus. Some older instruments appear to remain in a bad communication state if
-# this is not done cleanly by the backend or gateway.
-SEND_SERIAL_POLL_CLEANUP = True
+# After probing one address, explicitly return the instrument to a released
+# local state if the VISA backend supports it.
+RELEASE_TO_LOCAL_AFTER_PROBE = True
 
 # Small pause after bus cleanup. This gives the gateway and instrument a moment
 # to settle before the next access.
 POST_CLEANUP_DELAY_S = 0.05
+
+# After the entire scan, try to return the gateway GPIB controller itself to a
+# neutral state. This is a bus-level cleanup, not an instrument-level command.
+SEND_IFC_AFTER_SCAN = True
 
 
 def ask_gateway_ip() -> str:
@@ -137,63 +159,114 @@ def release_probe_session(inst) -> None:
         pass
 
 
-def build_interface_resource_name(gateway_ip: str) -> str:
-    return f"TCPIP0::{gateway_ip}::gpib{GPIB_BUS}::INTFC"
-
-
-def cleanup_after_serial_poll(interface_resource) -> None:
+def configure_probe_session(inst) -> None:
     """
-    Explicitly unwind serial-poll bus state.
+    Ask VISA to unaddress the GPIB device after I/O when possible.
 
     Why this exists
     ---------------
-    The HP 4192A appears to be sensitive to the serial-poll path used during a
-    GPIB scan. Even when the VISA session is closed, the instrument can stay in
-    a broken communication state until it is power-cycled.
-
-    This helper sends the low-level GPIB commands that should end a serial poll
-    and leave the bus unaddressed:
-
-    - SPD: serial poll disable
-    - UNT: untalk
-    - UNL: unlisten
+    Keysight VISA exposes a GPIB-specific attribute that controls whether a
+    device is explicitly unaddressed after each transfer. The default is not
+    ideal for a scan utility, because we want each probe to leave as little
+    state behind on the bus as possible.
     """
 
-    if not SEND_SERIAL_POLL_CLEANUP:
-        return
-
-    if interface_resource is None or not hasattr(interface_resource, "send_command"):
-        return
-
     try:
-        interface_resource.send_command(
-            GPIBCommand.serial_poll_disable
-            + GPIBCommand.untalk
-            + GPIBCommand.unlisten
+        inst.set_visa_attribute(
+            pyvisa.constants.ResourceAttribute.gpib_unadress_enable,
+            True,
         )
     except Exception:
         pass
+
+    try:
+        inst.set_visa_attribute(
+            pyvisa.constants.ResourceAttribute.send_end_enabled,
+            True,
+        )
+    except Exception:
+        pass
+
+
+def probe_device(inst) -> dict[str, object]:
+    """
+    Probe one open VISA resource and return a small result dictionary.
+
+    The returned keys are intentionally simple so the scan summary stays easy
+    to read.
+    """
+
+    if PROBE_METHOD == "serial_poll":
+        status_byte = int(inst.read_stb())
+        return {
+            "probe": "serial_poll",
+            "status_byte": status_byte,
+        }
+
+    if PROBE_METHOD == "blank_write":
+        if hasattr(inst, "write_raw"):
+            inst.write_raw(BLANK_WRITE_BYTES)
+        else:
+            inst.write(BLANK_WRITE_BYTES.decode("ascii"))
+
+        return {
+            "probe": "blank_write",
+            "status_byte": None,
+        }
+
+    raise ValueError(f"Unsupported PROBE_METHOD: {PROBE_METHOD!r}")
+
+
+def cleanup_gateway_controller(resource_manager, gateway_ip: str) -> None:
+    """
+    Return the LAN-to-GPIB gateway controller to an idle bus state.
+
+    Why this exists
+    ---------------
+    Closing individual instrument sessions may still leave the controller side
+    of the gateway in a state that interferes with the next script. Sending an
+    interface clear is a controller-level reset of bus handshaking, not a
+    device-clear command to the instrument.
+    """
+
+    if not SEND_IFC_AFTER_SCAN:
+        return
+
+    interface_name = f"TCPIP0::{gateway_ip}::INTFC"
+    interface = None
+
+    try:
+        interface = resource_manager.open_resource(interface_name)
+
+        if hasattr(interface, "send_ifc"):
+            interface.send_ifc()
+
+        if hasattr(interface, "control_ren"):
+            try:
+                interface.control_ren(pyvisa.constants.RENLineOperation.deassert)
+            except Exception:
+                pass
+    except Exception:
+        pass
+    finally:
+        if interface is not None:
+            try:
+                interface.close()
+            except Exception:
+                pass
 
 
 def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
     """
     Scan one GPIB bus on the gateway.
 
-    A responding status byte is treated as "device present".
+    A successful probe is treated as "device present".
     """
 
     results: list[dict[str, object]] = []
     resource_manager = pyvisa.ResourceManager()
-    interface_resource = None
 
     try:
-        try:
-            interface_resource = resource_manager.open_resource(
-                build_interface_resource_name(gateway_ip)
-            )
-        except Exception:
-            interface_resource = None
-
         for address in range(START_ADDRESS, END_ADDRESS + 1):
             resource_name = build_resource_name(gateway_ip, address)
             print(f"Checking address {address:02d}: {resource_name}")
@@ -202,11 +275,14 @@ def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
             try:
                 inst = resource_manager.open_resource(resource_name)
                 inst.timeout = TIMEOUT_MS
+                configure_probe_session(inst)
 
-                status_byte = int(inst.read_stb())
+                probe_result = probe_device(inst)
                 idn = try_scpi_idn(inst)
 
-                print(f"  Found device. Status byte: {status_byte}")
+                print(f"  Found device. Probe: {probe_result['probe']}")
+                if probe_result["status_byte"] is not None:
+                    print(f"  Status byte: {probe_result['status_byte']}")
                 if idn:
                     print(f"  SCPI IDN: {idn}")
 
@@ -214,7 +290,8 @@ def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
                     {
                         "address": address,
                         "resource_name": resource_name,
-                        "status_byte": status_byte,
+                        "status_byte": probe_result["status_byte"],
+                        "probe": probe_result["probe"],
                         "idn": idn,
                     }
                 )
@@ -222,26 +299,15 @@ def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
                 print("  No response.")
             finally:
                 if inst is not None:
-                    cleanup_after_serial_poll(interface_resource)
                     release_probe_session(inst)
                     try:
                         inst.close()
                     except Exception:
                         pass
                     if POST_CLEANUP_DELAY_S > 0:
-                        import time
-
                         time.sleep(POST_CLEANUP_DELAY_S)
     finally:
-        if interface_resource is not None:
-            try:
-                cleanup_after_serial_poll(interface_resource)
-            except Exception:
-                pass
-            try:
-                interface_resource.close()
-            except Exception:
-                pass
+        cleanup_gateway_controller(resource_manager, gateway_ip)
         resource_manager.close()
 
     return results
@@ -258,7 +324,9 @@ def print_summary(results: list[dict[str, object]]) -> None:
 
     for result in results:
         print(f"Address {result['address']:02d}: {result['resource_name']}")
-        print(f"  status byte: {result['status_byte']}")
+        print(f"  probe: {result['probe']}")
+        if result["status_byte"] is not None:
+            print(f"  status byte: {result['status_byte']}")
         if result["idn"]:
             print(f"  SCPI IDN: {result['idn']}")
 
@@ -269,6 +337,7 @@ def main() -> None:
     print(f"GPIB bus: {GPIB_BUS}")
     print(f"Address range: {START_ADDRESS} to {END_ADDRESS}")
     print(f"Timeout: {TIMEOUT_MS} ms")
+    print(f"Probe method: {PROBE_METHOD}")
     if TRY_SCPI_IDN:
         print("SCPI IDN probe: on")
     else:
