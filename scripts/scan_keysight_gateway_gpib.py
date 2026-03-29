@@ -55,6 +55,11 @@ TIMEOUT_MS = 1000
 # Optional extra step for SCPI instruments only.
 TRY_SCPI_IDN = False
 
+# After probing one address, explicitly return the instrument to a released
+# local state if the VISA backend supports it. On older GPIB instruments and
+# gateways, closing the VISA session alone is sometimes not enough.
+RELEASE_TO_LOCAL_AFTER_PROBE = True
+
 
 def ask_gateway_ip() -> str:
     """
@@ -91,6 +96,35 @@ def try_scpi_idn(inst) -> str | None:
         return str(inst.query("*IDN?")).strip()
     except Exception:
         return None
+
+
+def release_probe_session(inst) -> None:
+    """
+    Try to leave the probed instrument in a clean local/idle state.
+
+    Why this exists
+    ---------------
+    Some instruments and LAN-to-GPIB gateways keep talking or stay busy even
+    after the Python resource object is closed. The likely reason is that the
+    GPIB remote-enable state was not explicitly released.
+
+    This helper tries to send "go to local" together with REN deassertion.
+    If the backend or resource does not support it, the scan still continues.
+    """
+
+    if not RELEASE_TO_LOCAL_AFTER_PROBE:
+        return
+
+    if not hasattr(inst, "control_ren"):
+        return
+
+    try:
+        inst.control_ren(pyvisa.constants.RENLineOperation.deassert_gtl)
+    except Exception:
+        # Some VISA backends or gateway/resource combinations do not support
+        # control_ren on this kind of session. In that case we fall back to a
+        # normal close.
+        pass
 
 
 def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
@@ -132,6 +166,7 @@ def scan_gateway_bus(gateway_ip: str) -> list[dict[str, object]]:
                 print("  No response.")
             finally:
                 if inst is not None:
+                    release_probe_session(inst)
                     try:
                         inst.close()
                     except Exception:
