@@ -2,10 +2,10 @@
 HP 4192A LF Impedance Analyzer API.
 
 Current scope:
-- ping(): report connection details, current display functions, and spot
-  frequency
-- configure(): set spot frequency, spot bias, oscillator level, and a small
-  supported set of display-function pairs
+- ping(): report connection details, current display functions, spot
+  frequency, spot bias, and oscillator level
+- configure(): set spot frequency, spot bias, oscillator level, circuit mode,
+  and a small supported set of display-function pairs
 """
 
 from __future__ import annotations
@@ -31,6 +31,12 @@ HP4192ADisplayB: TypeAlias = Literal[
     "phase_rad",
     "quality_factor",
     "dissipation_factor",
+]
+
+HP4192ACircuitMode: TypeAlias = Literal[
+    "auto",
+    "series",
+    "parallel",
 ]
 
 
@@ -77,6 +83,12 @@ _DISPLAY_A_CODE_TO_CIRCUIT_MODE: dict[str, str] = {
     "CS": "series",
     "LP": "parallel",
     "CP": "parallel",
+}
+
+_CIRCUIT_MODE_TO_CODE: dict[str, str] = {
+    "auto": "C1",
+    "series": "C2",
+    "parallel": "C3",
 }
 
 _DISPLAY_C_VOLTAGE_UNIT_CODES = {"V", "Y"}
@@ -144,6 +156,8 @@ class HP4192A(Instrument):
         - current DISPLAY B function
         - circuit mode when it can be inferred from DISPLAY A
         - spot frequency
+        - spot bias
+        - oscillator level
         
         Manual-backed readback path
         ---------------------------
@@ -158,9 +172,11 @@ class HP4192A(Instrument):
         ---------------
         - This method does not send VISA device clear.
         - In this lab setup, VISA device clear reset the frequency to 100 kHz.
-        - Spot-bias and oscillator-level readback are intentionally not part of
-          ping() yet because those recall paths still need to be verified on
-          the real hardware before they are treated as stable.
+        - This method reports only parameters that currently have a proven
+          manual-backed readback path in this driver.
+        - Because the instrument is queried through recall codes such as
+          `FRR`, `BIR`, and `OLR`, DISPLAY C may end up showing the last
+          recalled parameter after `ping()` finishes.
         """
 
         state_rows: dict[str, object] = {}
@@ -200,6 +216,28 @@ class HP4192A(Instrument):
             else:
                 state_rows["spot frequency"] = _format_frequency_hz(frequency_hz)
 
+        try:
+            bias_v = self._read_display_c_number(
+                "BIR",
+                expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                parameter_name="spot bias",
+            )
+        except Exception as exc:
+            notes.append(f"Could not read spot bias: {exc}")
+        else:
+            state_rows["spot bias"] = f"{_trim_zeros(bias_v)} V"
+
+        try:
+            osc_level_v = self._read_display_c_number(
+                "OLR",
+                expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                parameter_name="oscillator level",
+            )
+        except Exception as exc:
+            notes.append(f"Could not read oscillator level: {exc}")
+        else:
+            state_rows["oscillator level"] = f"{_trim_zeros(osc_level_v)} V"
+
         report = InstrumentReport(
             instrument_name=self.instrument_name,
             connection=self.connection_info,
@@ -219,6 +257,8 @@ class HP4192A(Instrument):
         frequency_hz: float | None = None,
         bias_voltage_v: float | None = None,
         osc_level_v: float | None = None,
+        # Measurement interpretation
+        circuit_mode: HP4192ACircuitMode | None = None,
         # Measurement display
         display_a: HP4192ADisplayA | None = None,
         display_b: HP4192ADisplayB | None = None,
@@ -247,6 +287,17 @@ class HP4192A(Instrument):
             - 0.005 V above 0.100 V up to 1.100 V
             Sent as raw command ``OL...EN``.
 
+        circuit_mode:
+            How the instrument interprets L and C displays.
+            Accepted values:
+            - ``"auto"``
+            - ``"series"``
+            - ``"parallel"``
+
+            Sent as raw command ``C1``, ``C2``, or ``C3`` from table 3-23.
+            `ping()` reports circuit mode only when it can be inferred from the
+            current DISPLAY A readback, for example ``LS`` or ``CP``.
+
         display_a, display_b:
             High-level measurement display selection.
             If either keyword is provided, both must be provided together.
@@ -271,21 +322,39 @@ class HP4192A(Instrument):
 
         ``meter.configure(frequency_hz=1_000, bias_voltage_v=0.5, osc_level_v=0.1)``
 
+        Set inductance mode in series with quality factor:
+
+        ``meter.configure(circuit_mode="series", display_a="inductance", display_b="quality_factor")``
+
         Set a common impedance display pair:
 
         ``meter.configure(display_a="impedance", display_b="phase_deg")``
+
+        DISPLAY C behavior
+        ------------------
+        If `frequency_hz`, `bias_voltage_v`, or `osc_level_v` is changed, the
+        driver also sends the matching recall code (`FRR`, `BIR`, or `OLR`)
+        after the set command. This gives the instrument a chance to make
+        DISPLAY C follow the last changed numeric test parameter.
         """
 
         commands: list[str] = []
+        latest_display_c_recall_code: str | None = None
 
         if frequency_hz is not None:
             commands.append(_format_spot_frequency_set_command(_validate_frequency_hz(frequency_hz)))
+            latest_display_c_recall_code = "FRR"
 
         if bias_voltage_v is not None:
             commands.append(_format_spot_bias_set_command(_validate_bias_voltage_v(bias_voltage_v)))
+            latest_display_c_recall_code = "BIR"
 
         if osc_level_v is not None:
             commands.append(_format_osc_level_set_command(_validate_osc_level_v(osc_level_v)))
+            latest_display_c_recall_code = "OLR"
+
+        if circuit_mode is not None:
+            commands.append(_get_circuit_mode_code(circuit_mode))
 
         if display_a is not None or display_b is not None:
             if display_a is None or display_b is None:
@@ -294,6 +363,9 @@ class HP4192A(Instrument):
 
         for command in commands:
             self._device.write(command)
+
+        if latest_display_c_recall_code is not None:
+            self._device.write(latest_display_c_recall_code)
 
     def close(self) -> None:
         """
@@ -389,6 +461,17 @@ def _get_display_pair_codes(display_a: str, display_b: str) -> tuple[str, str]:
         )
         raise ValueError(
             f"Unsupported display pair {pair}. Supported pairs: {supported_pairs}"
+        ) from exc
+
+
+def _get_circuit_mode_code(circuit_mode: str) -> str:
+    try:
+        return _CIRCUIT_MODE_TO_CODE[circuit_mode]
+    except KeyError as exc:
+        supported_modes = ", ".join(sorted(_CIRCUIT_MODE_TO_CODE))
+        raise ValueError(
+            f"Unsupported circuit_mode {circuit_mode!r}. "
+            f"Supported values: {supported_modes}"
         ) from exc
 
 

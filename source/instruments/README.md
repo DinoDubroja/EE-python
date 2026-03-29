@@ -39,11 +39,12 @@ The 4192A is not SCPI-based. It uses older HP-IB remote program codes.
 
 Current implementation scope is intentionally small:
 
-- `ping()` reads the current display functions and spot frequency from the
-  instrument
+- `ping()` reads the current display functions, inferred circuit mode, spot
+  frequency, spot bias, and oscillator level from the instrument
 - `configure(...)` currently supports:
   - `frequency_hz`
   - `bias_voltage_v`
   - `osc_level_v`
+  - `circuit_mode`
   - `display_a`
   - `display_b`
