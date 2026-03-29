@@ -114,6 +114,36 @@ The current high-level Python API supports these keywords:
 - `display_a`
 - `display_b`
 
+### `configure()` Self-Check
+
+The current driver does not treat `configure()` as "send and hope."
+
+After it sends the requested command or commands, it reads the changed
+parameter back from the instrument and prints one short confirmation line.
+
+Uniform print format used by this repo:
+
+- exact or accepted value:
+
+  ```text
+  HP 4192A LF Impedance Analyzer | frequency_hz -> 1 kHz
+  ```
+
+- instrument rounded the value to its own resolution:
+
+  ```text
+  HP 4192A LF Impedance Analyzer | osc_level_v requested 0.103 V -> instrument set 0.105 V
+  ```
+
+- readback is not available safely in the current state:
+
+  ```text
+  HP 4192A LF Impedance Analyzer | circuit_mode requested series -> readback unavailable
+  ```
+
+If the instrument readback disagrees with the requested change, the driver
+raises a configuration-verification error instead of silently continuing.
+
 ### `ping()` Readback
 
 The current `ping()` reads and reports:
@@ -253,6 +283,9 @@ FRR
 The reason is simple: this gives the instrument a chance to make DISPLAY C
 follow the last changed parameter.
 
+Then the driver reads the frequency back and checks that the instrument really
+accepted the new value.
+
 ## Spot Bias
 
 ### High-Level Keyword
@@ -304,6 +337,8 @@ BIR
 ```
 
 This is the same DISPLAY-C-follow behavior used for spot frequency.
+
+Then the driver reads the bias back and checks the actual instrument value.
 
 ## Oscillator Level
 
@@ -359,6 +394,11 @@ OLR
 This is the same DISPLAY-C-follow behavior used for the other numeric test
 parameters.
 
+Then the driver reads the oscillator level back and checks the actual
+instrument value. If the requested value falls between supported instrument
+steps, the driver prints both the requested and actual values instead of
+treating that as an error.
+
 ## Circuit Mode
 
 ### High-Level Keyword
@@ -404,6 +444,13 @@ Important limitation:
 When you set `circuit_mode="auto"`, the instrument may still report a concrete
 series or parallel interpretation depending on what it chose for the current
 measurement. `ping()` reports what DISPLAY A actually returns.
+
+The same limitation affects `configure()` verification:
+
+- if DISPLAY A readback contains enough information, `configure()` verifies the
+  circuit mode
+- if the current display family does not expose series/parallel information,
+  `configure()` prints `readback unavailable`
 
 ## Display Functions
 

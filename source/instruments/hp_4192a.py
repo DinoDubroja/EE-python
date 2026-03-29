@@ -16,7 +16,14 @@ import math
 import re
 from typing import Literal, TypeAlias
 
-from .instrument import Instrument, InstrumentReport
+from .instrument import (
+    ConfigurationVerificationError,
+    Instrument,
+    InstrumentReport,
+    format_configure_adjusted,
+    format_configure_success,
+    format_configure_unverified,
+)
 from .visa import VisaDevice
 
 
@@ -47,6 +54,19 @@ _DISPLAY_PAIR_TO_CODES: dict[tuple[str, str], tuple[str, str]] = {
     ("inductance", "dissipation_factor"): ("A3", "B2"),
     ("capacitance", "quality_factor"): ("A4", "B1"),
     ("capacitance", "dissipation_factor"): ("A4", "B2"),
+}
+
+_DISPLAY_A_REQUEST_TO_CODES: dict[str, set[str]] = {
+    "impedance": {"ZF"},
+    "inductance": {"LS", "LP"},
+    "capacitance": {"CS", "CP"},
+}
+
+_DISPLAY_B_REQUEST_TO_CODES: dict[str, set[str]] = {
+    "phase_deg": {"TD"},
+    "phase_rad": {"TR"},
+    "quality_factor": {"QF"},
+    "dissipation_factor": {"DF"},
 }
 
 _DISPLAY_A_CODE_TO_NAME: dict[str, str] = {
@@ -206,11 +226,7 @@ class HP4192A(Instrument):
                 state_rows["circuit mode"] = circuit_mode
 
             try:
-                frequency_hz = _parse_display_c_number(
-                    frequency_snapshot.display_c,
-                    expected_unit_codes={"K"},
-                    parameter_name="spot frequency",
-                ) * 1000.0
+                frequency_hz = _parse_spot_frequency_hz(frequency_snapshot)
             except Exception as exc:
                 notes.append(f"Could not parse spot frequency from DISPLAY C: {exc}")
             else:
@@ -336,21 +352,46 @@ class HP4192A(Instrument):
         driver also sends the matching recall code (`FRR`, `BIR`, or `OLR`)
         after the set command. This gives the instrument a chance to make
         DISPLAY C follow the last changed numeric test parameter.
+
+        Configure self-check
+        --------------------
+        After sending each requested setting, this method reads the instrument
+        state back and prints one short confirmation line per changed
+        parameter.
+
+        Behavior:
+        - if the actual instrument value matches the requested value, a normal
+          confirmation line is printed
+        - if the instrument accepts the change but rounds it to its own
+          resolution, the requested and actual values are both printed
+        - if the readback disagrees with the requested change, this method
+          raises `ConfigurationVerificationError`
+        - if a parameter has no safe readback path in the current state, the
+          method prints `readback unavailable` instead of guessing
         """
 
         commands: list[str] = []
         latest_display_c_recall_code: str | None = None
+        expected_frequency_hz: float | None = None
+        expected_bias_voltage_v: float | None = None
+        expected_osc_level_v: float | None = None
 
         if frequency_hz is not None:
-            commands.append(_format_spot_frequency_set_command(_validate_frequency_hz(frequency_hz)))
+            frequency_hz = _validate_frequency_hz(frequency_hz)
+            expected_frequency_hz = _normalize_frequency_hz(frequency_hz)
+            commands.append(_format_spot_frequency_set_command(frequency_hz))
             latest_display_c_recall_code = "FRR"
 
         if bias_voltage_v is not None:
-            commands.append(_format_spot_bias_set_command(_validate_bias_voltage_v(bias_voltage_v)))
+            bias_voltage_v = _validate_bias_voltage_v(bias_voltage_v)
+            expected_bias_voltage_v = _normalize_bias_voltage_v(bias_voltage_v)
+            commands.append(_format_spot_bias_set_command(bias_voltage_v))
             latest_display_c_recall_code = "BIR"
 
         if osc_level_v is not None:
-            commands.append(_format_osc_level_set_command(_validate_osc_level_v(osc_level_v)))
+            osc_level_v = _validate_osc_level_v(osc_level_v)
+            expected_osc_level_v = _normalize_osc_level_v(osc_level_v)
+            commands.append(_format_osc_level_set_command(osc_level_v))
             latest_display_c_recall_code = "OLR"
 
         if circuit_mode is not None:
@@ -364,8 +405,141 @@ class HP4192A(Instrument):
         for command in commands:
             self._device.write(command)
 
-        if latest_display_c_recall_code is not None:
-            self._device.write(latest_display_c_recall_code)
+        try:
+            snapshot_for_display_checks: _OutputSnapshot | None = None
+
+            if any(
+                value is not None
+                for value in (frequency_hz, circuit_mode, display_a, display_b)
+            ):
+                snapshot_for_display_checks = self._read_output_snapshot("FRR")
+
+            if frequency_hz is not None:
+                if snapshot_for_display_checks is None:
+                    raise ConfigurationVerificationError(
+                        "frequency_hz was changed but no frequency readback was captured"
+                    )
+
+                actual_frequency_hz = _parse_spot_frequency_hz(snapshot_for_display_checks)
+                _verify_numeric_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="frequency_hz",
+                    requested_value=frequency_hz,
+                    expected_value=expected_frequency_hz,
+                    actual_value=actual_frequency_hz,
+                    requested_text=_format_frequency_hz(frequency_hz),
+                    actual_text=_format_frequency_hz(actual_frequency_hz),
+                    absolute_tolerance=1e-6,
+                )
+
+            if bias_voltage_v is not None:
+                actual_bias_voltage_v = self._read_display_c_number(
+                    "BIR",
+                    expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                    parameter_name="spot bias",
+                )
+                _verify_numeric_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="bias_voltage_v",
+                    requested_value=bias_voltage_v,
+                    expected_value=expected_bias_voltage_v,
+                    actual_value=actual_bias_voltage_v,
+                    requested_text=f"{_trim_zeros(bias_voltage_v)} V",
+                    actual_text=f"{_trim_zeros(actual_bias_voltage_v)} V",
+                    absolute_tolerance=1e-9,
+                )
+
+            if osc_level_v is not None:
+                actual_osc_level_v = self._read_display_c_number(
+                    "OLR",
+                    expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                    parameter_name="oscillator level",
+                )
+                _verify_numeric_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="osc_level_v",
+                    requested_value=osc_level_v,
+                    expected_value=expected_osc_level_v,
+                    actual_value=actual_osc_level_v,
+                    requested_text=f"{_trim_zeros(osc_level_v)} V",
+                    actual_text=f"{_trim_zeros(actual_osc_level_v)} V",
+                    absolute_tolerance=1e-9,
+                )
+
+            if display_a is not None and display_b is not None:
+                if snapshot_for_display_checks is None:
+                    raise ConfigurationVerificationError(
+                        "display_a/display_b were changed but no display readback was captured"
+                    )
+
+                actual_display_a_name = _DISPLAY_A_CODE_TO_NAME.get(
+                    snapshot_for_display_checks.display_a.function_code,
+                    f"unknown ({snapshot_for_display_checks.display_a.function_code})",
+                )
+                actual_display_b_name = _DISPLAY_B_CODE_TO_NAME.get(
+                    snapshot_for_display_checks.display_b.function_code,
+                    f"unknown ({snapshot_for_display_checks.display_b.function_code})",
+                )
+
+                _verify_display_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="display_a",
+                    requested_value=display_a,
+                    actual_code=snapshot_for_display_checks.display_a.function_code,
+                    allowed_codes=_DISPLAY_A_REQUEST_TO_CODES[display_a],
+                    actual_text=actual_display_a_name,
+                )
+                _verify_display_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="display_b",
+                    requested_value=display_b,
+                    actual_code=snapshot_for_display_checks.display_b.function_code,
+                    allowed_codes=_DISPLAY_B_REQUEST_TO_CODES[display_b],
+                    actual_text=actual_display_b_name,
+                )
+
+            if circuit_mode is not None:
+                if snapshot_for_display_checks is None:
+                    raise ConfigurationVerificationError(
+                        "circuit_mode was changed but no display readback was captured"
+                    )
+
+                actual_circuit_mode = _DISPLAY_A_CODE_TO_CIRCUIT_MODE.get(
+                    snapshot_for_display_checks.display_a.function_code
+                )
+                if actual_circuit_mode is None:
+                    print(
+                        format_configure_unverified(
+                            self.instrument_name,
+                            "circuit_mode",
+                            circuit_mode,
+                        )
+                    )
+                elif circuit_mode == "auto":
+                    print(
+                        format_configure_adjusted(
+                            self.instrument_name,
+                            "circuit_mode",
+                            "auto",
+                            actual_circuit_mode,
+                        )
+                    )
+                elif actual_circuit_mode != circuit_mode:
+                    raise ConfigurationVerificationError(
+                        "circuit_mode verification failed: "
+                        f"requested {circuit_mode!r}, instrument reports {actual_circuit_mode!r}"
+                    )
+                else:
+                    print(
+                        format_configure_success(
+                            self.instrument_name,
+                            "circuit_mode",
+                            actual_circuit_mode,
+                        )
+                    )
+        finally:
+            if latest_display_c_recall_code is not None:
+                self._device.write(latest_display_c_recall_code)
 
     def close(self) -> None:
         """
@@ -533,6 +707,85 @@ def _parse_display_c_number(
         raise RuntimeError(
             f"{parameter_name} value could not be parsed from DISPLAY C: {field.value_text!r}"
         ) from exc
+
+
+def _parse_spot_frequency_hz(snapshot: _OutputSnapshot) -> float:
+    return _parse_display_c_number(
+        snapshot.display_c,
+        expected_unit_codes={"K"},
+        parameter_name="spot frequency",
+    ) * 1000.0
+
+
+def _normalize_frequency_hz(value: float) -> float:
+    frequency_khz = value / 1000.0
+    return float(_format_frequency_value_khz(frequency_khz)) * 1000.0
+
+
+def _normalize_bias_voltage_v(value: float) -> float:
+    return float(_format_decimal_with_step(value, step="0.01", places="0.01"))
+
+
+def _normalize_osc_level_v(value: float) -> float:
+    if value <= 0.100:
+        return float(_format_decimal_with_step(value, step="0.001", places="0.001"))
+    return float(_format_decimal_with_step(value, step="0.005", places="0.001"))
+
+
+def _verify_numeric_setting(
+    *,
+    instrument_name: str,
+    parameter_name: str,
+    requested_value: float,
+    expected_value: float | None,
+    actual_value: float,
+    requested_text: str,
+    actual_text: str,
+    absolute_tolerance: float,
+) -> None:
+    if expected_value is None:
+        raise ConfigurationVerificationError(
+            f"{parameter_name} verification was requested without an expected value"
+        )
+
+    if not math.isclose(actual_value, expected_value, rel_tol=0.0, abs_tol=absolute_tolerance):
+        raise ConfigurationVerificationError(
+            f"{parameter_name} verification failed: "
+            f"requested {requested_text}, instrument reports {actual_text}"
+        )
+
+    if math.isclose(actual_value, requested_value, rel_tol=0.0, abs_tol=absolute_tolerance):
+        print(format_configure_success(instrument_name, parameter_name, actual_text))
+        return
+
+    print(
+        format_configure_adjusted(
+            instrument_name,
+            parameter_name,
+            requested_text,
+            actual_text,
+        )
+    )
+
+
+def _verify_display_setting(
+    *,
+    instrument_name: str,
+    parameter_name: str,
+    requested_value: str,
+    actual_code: str,
+    allowed_codes: set[str],
+    actual_text: str,
+) -> None:
+    if actual_code not in allowed_codes:
+        allowed_text = ", ".join(sorted(allowed_codes))
+        raise ConfigurationVerificationError(
+            f"{parameter_name} verification failed: "
+            f"requested {requested_value!r}, instrument returned code {actual_code!r} "
+            f"(expected one of {allowed_text})"
+        )
+
+    print(format_configure_success(instrument_name, parameter_name, actual_text))
 
 
 def _format_spot_frequency_set_command(frequency_hz: float) -> str:

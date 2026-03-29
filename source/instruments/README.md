@@ -33,6 +33,15 @@ Each instrument should at least provide:
 
 Other instrument-specific functions should be added only when they are actually needed.
 
+`configure()` should not only send commands. When the instrument offers a safe
+readback path, it should also:
+
+- read the changed parameter back from the instrument
+- print one short confirmation line in a uniform format
+- raise an error if the readback disagrees with the requested change
+- report `readback unavailable` instead of guessing when the parameter cannot
+  be verified safely
+
 ## HP 4192A Notes
 
 The 4192A is not SCPI-based. It uses older HP-IB remote program codes.

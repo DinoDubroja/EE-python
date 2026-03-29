@@ -137,6 +137,55 @@ def _format_value(value: object) -> str:
     return str(value)
 
 
+class ConfigurationVerificationError(RuntimeError):
+    """
+    Raised when a configure() self-check disagrees with instrument readback.
+    """
+
+
+def format_configure_success(
+    instrument_name: str,
+    parameter_name: str,
+    actual_value: str,
+) -> str:
+    """
+    Return the standard confirmation line for an exact or accepted setting.
+    """
+
+    return f"{instrument_name} | {parameter_name} -> {actual_value}"
+
+
+def format_configure_adjusted(
+    instrument_name: str,
+    parameter_name: str,
+    requested_value: str,
+    actual_value: str,
+) -> str:
+    """
+    Return the standard confirmation line for an adjusted setting.
+    """
+
+    return (
+        f"{instrument_name} | {parameter_name} requested {requested_value} "
+        f"-> instrument set {actual_value}"
+    )
+
+
+def format_configure_unverified(
+    instrument_name: str,
+    parameter_name: str,
+    requested_value: str,
+) -> str:
+    """
+    Return the standard confirmation line when readback is unavailable.
+    """
+
+    return (
+        f"{instrument_name} | {parameter_name} requested {requested_value} "
+        "-> readback unavailable"
+    )
+
+
 class Instrument(ABC):
     """
     Common base class for active instrument APIs.
@@ -156,6 +205,10 @@ class Instrument(ABC):
     def configure(self, *args: object, **kwargs: object) -> object:
         """
         Change instrument state through a single entry point.
+
+        Repo rule:
+        configure() should verify requested changes against instrument readback
+        when the instrument offers a safe readback path.
         """
 
     @abstractmethod
