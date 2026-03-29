@@ -1,3 +1,9 @@
 {
-    "CodeGPT.apiKey": "CodeGPT Plus Beta"
+    "CodeGPT.apiKey": "CodeGPT Plus Beta",
+    "python.analysis.extraPaths": [
+        "./source"
+    ],
+    "python.autoComplete.extraPaths": [
+        "./source"
+    ]
 }
