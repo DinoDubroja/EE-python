@@ -156,7 +156,7 @@ _DISPLAY_C_VOLTAGE_UNIT_CODES = {"V", "Y"}
 
 # The 4192A is noticeably happier when command/readback sequences are not sent
 # at full PC speed. Keep these short so bench use stays responsive.
-_HP4192A_COMMAND_DELAY_S = 0.01
+_HP4192A_COMMAND_DELAY_S = 0.0
 _HP4192A_TRIGGER_SETTLE_S = 0.03
 _HP4192A_POST_CONFIG_SETTLE_S = 0.03
 _HP4192A_READBACK_RETRY_DELAY_S = 0.05
@@ -287,7 +287,7 @@ class HP4192A(Instrument):
                 state_rows["circuit mode"] = circuit_mode
 
             try:
-                frequency_hz = self._read_spot_frequency_hz()
+                frequency_hz = _parse_spot_frequency_hz(frequency_snapshot)
             except Exception as exc:
                 notes.append(f"Could not parse spot frequency from DISPLAY C: {exc}")
             else:
@@ -566,7 +566,7 @@ class HP4192A(Instrument):
                         "frequency_hz was changed but no frequency readback was captured"
                     )
 
-                actual_frequency_hz = self._read_spot_frequency_hz()
+                actual_frequency_hz = _parse_spot_frequency_hz(snapshot_for_display_checks)
                 _verify_numeric_setting(
                     instrument_name=self.instrument_name,
                     parameter_name="frequency_hz",
