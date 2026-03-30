@@ -124,6 +124,13 @@ This is the higher-level data-read function for the 4192A in this repo.
 It returns the current DISPLAY A/B measurement values together with the current
 DISPLAY C field and the raw returned string.
 
+Important:
+
+- if DISPLAY A is `inductance` or `capacitance`, the Python API expects you to
+  set `circuit_mode` explicitly as well
+- if the instrument reports `overflow` or `uncalibrated`, the driver keeps the
+  raw returned value text but does not treat it as a normal numeric value
+
 ### `configure()` Self-Check
 
 The current driver does not treat `configure()` as "send and hope."
@@ -195,6 +202,15 @@ Meaning:
 
 Because `measure()` does not send `FRR`, `BIR`, or `OLR`, it does not
 intentionally change which parameter DISPLAY C is following.
+
+Status handling:
+
+- `N` -> normal
+- `O` -> overflow
+- `U` -> uncalibrated
+
+When DISPLAY A or DISPLAY B comes back with `O` or `U`, `measure()` reports the
+status and keeps the raw text, but the parsed `.value` is `None`.
 
 ## How `ping()` Reads The Instrument
 
@@ -521,6 +537,11 @@ From table `3-23`, the driver currently uses:
 
 - `display_a="capacitance", display_b="quality_factor"` -> `A4`, `B1`
 - `display_a="capacitance", display_b="dissipation_factor"` -> `A4`, `B2`
+
+Important:
+
+- for `inductance` and `capacitance`, also set `circuit_mode`
+- that keeps the series/parallel interpretation explicit in the high-level API
 
 ### Example
 

@@ -15,6 +15,10 @@ Optional behavior
 If you want the script to first force a known display pair, set
 `SET_KNOWN_DISPLAY = True` below.
 
+Important:
+If you use `inductance` or `capacitance` as DISPLAY A, also set
+`KNOWN_CIRCUIT_MODE`.
+
 How to use
 ----------
 1. Edit `RESOURCE`.
@@ -42,11 +46,12 @@ TIMEOUT_MS = 5000
 
 # Leave this False if you want to measure the instrument exactly as it is
 # already configured on the bench.
-SET_KNOWN_DISPLAY = False
+SET_KNOWN_DISPLAY = True
 
 # These settings are only used when SET_KNOWN_DISPLAY is True.
-KNOWN_DISPLAY_A = "impedance"
-KNOWN_DISPLAY_B = "phase_deg"
+KNOWN_DISPLAY_A = "capacitance"
+KNOWN_DISPLAY_B = "dissipation_factor"
+KNOWN_CIRCUIT_MODE = "parallel"
 
 
 def main() -> None:
@@ -60,10 +65,15 @@ def main() -> None:
         if SET_KNOWN_DISPLAY:
             print()
             print("Setting a known display pair before measure()...")
-            meter.configure(
-                display_a=KNOWN_DISPLAY_A,
-                display_b=KNOWN_DISPLAY_B,
-            )
+            configure_kwargs: dict[str, object] = {
+                "display_a": KNOWN_DISPLAY_A,
+                "display_b": KNOWN_DISPLAY_B,
+            }
+
+            if KNOWN_CIRCUIT_MODE is not None:
+                configure_kwargs["circuit_mode"] = KNOWN_CIRCUIT_MODE
+
+            meter.configure(**configure_kwargs)
 
         print()
         print("Calling measure()...")
@@ -76,8 +86,10 @@ def main() -> None:
         print("Access individual values in Python like this:")
         print(f"  reading.display_a.label = {reading.display_a.label!r}")
         print(f"  reading.display_a.value = {reading.display_a.value!r}")
+        print(f"  reading.display_a.status = {reading.display_a.status!r}")
         print(f"  reading.display_b.label = {reading.display_b.label!r}")
         print(f"  reading.display_b.value = {reading.display_b.value!r}")
+        print(f"  reading.display_b.status = {reading.display_b.status!r}")
         print(f"  reading.display_c.unit_code = {reading.display_c.unit_code!r}")
         print(f"  reading.display_c.raw_value = {reading.display_c.raw_value!r}")
     finally:

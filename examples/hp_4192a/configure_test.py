@@ -32,7 +32,7 @@ How to use
 1. Edit RESOURCE if needed.
 2. Run:
 
-   python examples/hp_4192a/check_primary_settings.py
+   python examples/hp_4192a/configure_test.py
 
 3. Follow the prompts.
 """
@@ -243,8 +243,8 @@ def run_one_step(
 
 
 def main() -> None:
-    print("HP 4192A primary-settings check")
-    print("-------------------------------")
+    print("HP 4192A configure_test")
+    print("-----------------------")
     print(f"Resource: {RESOURCE}")
     print()
     print("This script checks all currently supported HP 4192A settings one by one.")

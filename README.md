@@ -16,6 +16,7 @@ The active instrument APIs are built around a small common shape:
 
 - `ping()`: report the current instrument situation as clearly as the hardware allows.
 - `configure()`: change instrument state through one readable entry point.
+- `measure()`: when an instrument supports it, return structured measurement data.
 
 This keeps usage simple at the bench:
 
@@ -34,16 +35,16 @@ not have to reopen the vendor manual to remember the command syntax.
 ## Current Focus
 
 - First clean implementation: HP 4192A LF Impedance Analyzer
-- Current goal inside that driver: real frequency readback and frequency setting
+- Current goal inside that driver: expand readback, configuration, and measurement support
 - Later: rewrite the existing Siglent APIs to match the same style
 
 Useful files for the current HP 4192A work:
 
 - [source/instruments/hp_4192a.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/source/instruments/hp_4192a.py)
 - [source/instruments/hp_4192a_commands.md](/C:/Users/dinod/Desktop/EE%20python/EE-python/source/instruments/hp_4192a_commands.md)
-- [examples/hp_4192a/check_frequency.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/check_frequency.py)
-- [examples/hp_4192a/check_primary_settings.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/check_primary_settings.py)
-- [examples/hp_4192a/diagnose_commands.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/diagnose_commands.py)
+- [examples/hp_4192a/configure_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/configure_test.py)
+- [examples/hp_4192a/measurement_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/measurement_test.py)
+- [examples/hp_4192a/read_measurement.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/read_measurement.py)
 - [scripts/scan_keysight_gateway_gpib.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/scan_keysight_gateway_gpib.py)
 
 ## Reference Manual
