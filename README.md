@@ -15,6 +15,7 @@ Clean instrument-control code for electrical measurements.
 The active instrument APIs are built around a small common shape:
 
 - `ping()`: report the current instrument situation as clearly as the hardware allows.
+- `get()`: read one current parameter value from the instrument.
 - `configure()`: change instrument state through one readable entry point.
 - `measure()`: when an instrument supports it, return structured measurement data.
 
@@ -25,6 +26,7 @@ from instruments import HP4192A
 
 meter = HP4192A.open("TCPIP0::192.168.1.50::gpib0,17::INSTR")
 meter.ping()
+frequency_hz = meter.get("frequency_hz")
 meter.configure(frequency_hz=1_000)
 meter.close()
 ```

@@ -114,6 +114,39 @@ The current high-level Python API supports these keywords:
 - `display_a`
 - `display_b`
 
+### `get()`
+
+The current driver also supports:
+
+- `get(parameter_name)`
+
+This is the single-parameter readback function for the 4192A in this repo.
+
+Currently supported parameter names:
+
+- `frequency_hz`
+- `bias_voltage_v`
+- `osc_level_v`
+- `display_a`
+- `display_b`
+- `circuit_mode`
+
+Examples:
+
+```python
+frequency_hz = meter.get("frequency_hz")
+bias_voltage_v = meter.get("bias_voltage_v")
+display_a = meter.get("display_a")
+```
+
+Return style:
+
+- numeric test parameters return numbers
+- display parameters return high-level names such as `impedance`,
+  `capacitance`, `phase_deg`, or `quality_factor`
+- `circuit_mode` returns `series` or `parallel` only when the current display
+  exposes that information
+
 ### `measure()`
 
 The current driver also supports:
@@ -205,6 +238,53 @@ intentionally change which parameter DISPLAY C is following.
 If DISPLAY A or DISPLAY B comes back with `O` (overflow) or `U`
 (uncalibrated), `measure()` raises an error because there is no actual numeric
 measurement to return.
+
+### `get()` Readback
+
+`get()` is intentionally different from both `ping()` and `measure()`.
+
+- `ping()` is for a readable full report
+- `get()` is for one specific current parameter
+- `measure()` is for current measurement data
+
+Current readback paths:
+
+- `get("frequency_hz")`
+
+  ```text
+  F1
+  FRR
+  EX
+  READ
+  ```
+
+- `get("bias_voltage_v")`
+
+  ```text
+  F1
+  BIR
+  EX
+  READ
+  ```
+
+- `get("osc_level_v")`
+
+  ```text
+  F1
+  OLR
+  EX
+  READ
+  ```
+
+- `get("display_a")`, `get("display_b")`, and `get("circuit_mode")`
+  use the function codes already present in the A/B output fields.
+
+Important limitation:
+
+- `get("circuit_mode")` is inferred from DISPLAY A codes such as `LS`, `LP`,
+  `CS`, and `CP`
+- if the current display does not expose that information, `get("circuit_mode")`
+  raises an error instead of guessing
 
 ## How `ping()` Reads The Instrument
 
@@ -693,6 +773,13 @@ Right now the active driver covers:
   - spot frequency
   - spot bias
   - oscillator level
+- `get(parameter_name)`
+  - `frequency_hz`
+  - `bias_voltage_v`
+  - `osc_level_v`
+  - `display_a`
+  - `display_b`
+  - `circuit_mode`
 - `configure(...)`
   - `frequency_hz`
   - `bias_voltage_v`

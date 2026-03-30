@@ -202,6 +202,17 @@ class Instrument(ABC):
         """
 
     @abstractmethod
+    def get(self, parameter_name: str) -> object:
+        """
+        Read one current parameter value from the instrument.
+
+        Repo rule:
+        get() should return a real value read from the instrument when a safe
+        readback path exists. It should not return cached Python state as if it
+        were instrument state.
+        """
+
+    @abstractmethod
     def configure(self, *args: object, **kwargs: object) -> object:
         """
         Change instrument state through a single entry point.

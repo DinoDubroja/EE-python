@@ -4,6 +4,7 @@ HP 4192A LF Impedance Analyzer API.
 Current scope:
 - ping(): report connection details, current display functions, spot
   frequency, spot bias, and oscillator level
+- get(): read one current parameter value from the instrument
 - configure(): set spot frequency, spot bias, oscillator level, circuit mode,
   and a small supported set of display-function pairs
 - measure(): return one current A/B measurement pair
@@ -47,6 +48,15 @@ HP4192ACircuitMode: TypeAlias = Literal[
     "parallel",
 ]
 
+HP4192AGetParameter: TypeAlias = Literal[
+    "frequency_hz",
+    "bias_voltage_v",
+    "osc_level_v",
+    "display_a",
+    "display_b",
+    "circuit_mode",
+]
+
 
 _DISPLAY_PAIR_TO_CODES: dict[tuple[str, str], tuple[str, str]] = {
     ("impedance", "phase_deg"): ("A1", "B1"),
@@ -86,6 +96,22 @@ _DISPLAY_A_CODE_TO_NAME: dict[str, str] = {
     "BM": "display B in dBm",
 }
 
+_DISPLAY_A_CODE_TO_GET_VALUE: dict[str, str] = {
+    "ZF": "impedance",
+    "YF": "admittance",
+    "RF": "resistance",
+    "GF": "conductance",
+    "LS": "inductance",
+    "LP": "inductance",
+    "CS": "capacitance",
+    "CP": "capacitance",
+    "BA": "gain_difference",
+    "AV": "display_a_dbv",
+    "BV": "display_b_dbv",
+    "AM": "display_a_dbm",
+    "BM": "display_b_dbm",
+}
+
 _DISPLAY_B_CODE_TO_NAME: dict[str, str] = {
     "TD": "phase (deg)",
     "TR": "phase (rad)",
@@ -96,6 +122,19 @@ _DISPLAY_B_CODE_TO_NAME: dict[str, str] = {
     "RF": "resistance",
     "GF": "conductance",
     "GD": "group delay",
+    "UM": "unmeasure",
+}
+
+_DISPLAY_B_CODE_TO_GET_VALUE: dict[str, str] = {
+    "TD": "phase_deg",
+    "TR": "phase_rad",
+    "XF": "reactance",
+    "BF": "susceptance",
+    "QF": "quality_factor",
+    "DF": "dissipation_factor",
+    "RF": "resistance",
+    "GF": "conductance",
+    "GD": "group_delay",
     "UM": "unmeasure",
 }
 
@@ -278,6 +317,80 @@ class HP4192A(Instrument):
             print(report.to_text())
 
         return report
+
+    def get(self, parameter_name: HP4192AGetParameter) -> float | str:
+        """
+        Read one current HP 4192A parameter value from the instrument.
+
+        Supported parameter names
+        -------------------------
+        frequency_hz:
+            Return the current spot frequency in hertz.
+
+        bias_voltage_v:
+            Return the current spot bias in volts.
+
+        osc_level_v:
+            Return the current oscillator level in volts.
+
+        display_a:
+            Return the current DISPLAY A measurement family as a high-level
+            name such as `impedance`, `inductance`, or `capacitance`.
+
+        display_b:
+            Return the current DISPLAY B measurement family as a high-level
+            name such as `phase_deg`, `quality_factor`, or
+            `dissipation_factor`.
+
+        circuit_mode:
+            Return `series` or `parallel` when the current DISPLAY A function
+            exposes that information.
+
+        Important limitation
+        --------------------
+        `circuit_mode` cannot always be read directly on the 4192A. The
+        current driver infers it from DISPLAY A function codes such as `LS`,
+        `LP`, `CS`, and `CP`. If the current display does not expose that
+        information, `get("circuit_mode")` raises an error instead of guessing.
+        """
+
+        if parameter_name == "frequency_hz":
+            snapshot = self._read_output_snapshot("FRR")
+            return _parse_spot_frequency_hz(snapshot)
+
+        if parameter_name == "bias_voltage_v":
+            return self._read_display_c_number(
+                "BIR",
+                expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                parameter_name="spot bias",
+            )
+
+        if parameter_name == "osc_level_v":
+            return self._read_display_c_number(
+                "OLR",
+                expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                parameter_name="oscillator level",
+            )
+
+        snapshot = self._read_output_snapshot("FRR")
+
+        if parameter_name == "display_a":
+            return _get_display_a_get_value(snapshot.display_a.function_code)
+
+        if parameter_name == "display_b":
+            return _get_display_b_get_value(snapshot.display_b.function_code)
+
+        if parameter_name == "circuit_mode":
+            circuit_mode = _DISPLAY_A_CODE_TO_CIRCUIT_MODE.get(
+                snapshot.display_a.function_code
+            )
+            if circuit_mode is None:
+                raise RuntimeError(
+                    "current DISPLAY A function does not expose circuit_mode"
+                )
+            return circuit_mode
+
+        raise ValueError(f"Unsupported get() parameter: {parameter_name!r}")
 
     def configure(
         self,
@@ -735,6 +848,24 @@ def _parse_output_snapshot(raw: str) -> _OutputSnapshot:
         display_c=display_c,
         raw=raw,
     )
+
+
+def _get_display_a_get_value(function_code: str) -> str:
+    try:
+        return _DISPLAY_A_CODE_TO_GET_VALUE[function_code]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"DISPLAY A function code {function_code!r} is not mapped for get()"
+        ) from exc
+
+
+def _get_display_b_get_value(function_code: str) -> str:
+    try:
+        return _DISPLAY_B_CODE_TO_GET_VALUE[function_code]
+    except KeyError as exc:
+        raise RuntimeError(
+            f"DISPLAY B function code {function_code!r} is not mapped for get()"
+        ) from exc
 
 
 def _parse_display_field(field: str, *, display_name: str) -> _DisplayField:

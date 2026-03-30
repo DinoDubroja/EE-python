@@ -29,6 +29,7 @@ plain language:
 Each instrument should at least provide:
 
 - `ping()`
+- `get()`
 - `configure()`
 
 Other instrument-specific functions should be added only when they are actually needed.
@@ -58,6 +59,13 @@ Current implementation scope is intentionally small:
 
 - `ping()` reads the current display functions, inferred circuit mode, spot
   frequency, spot bias, and oscillator level from the instrument
+- `get(parameter_name)` currently supports:
+  - `frequency_hz`
+  - `bias_voltage_v`
+  - `osc_level_v`
+  - `display_a`
+  - `display_b`
+  - `circuit_mode`
 - `configure(...)` currently supports:
   - `frequency_hz`
   - `bias_voltage_v`
