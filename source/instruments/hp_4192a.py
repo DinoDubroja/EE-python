@@ -166,7 +166,7 @@ _HP4192A_COMMAND_DELAY_S = 0.0
 #
 # Delay after sending `EX` before reading the instrument response. This gives
 # the 4192A time to complete the triggered output/update cycle.
-_HP4192A_TRIGGER_SETTLE_S = 0.01
+_HP4192A_TRIGGER_SETTLE_S = 0.1
 #
 # Delay after a full configure batch before the driver starts verification
 # readback. This is the main "let the instrument settle into the new state"
@@ -176,7 +176,7 @@ _HP4192A_POST_CONFIG_SETTLE_S = 0.1
 #
 # Delay before a retry when a numeric readback fails to parse or comes back in
 # the wrong output state.
-_HP4192A_READBACK_RETRY_DELAY_S = 0.2
+_HP4192A_READBACK_RETRY_DELAY_S = 0.1
 #
 # Number of attempts for numeric readbacks such as frequency, bias, and
 # oscillator level.
@@ -184,12 +184,12 @@ _HP4192A_READBACK_ATTEMPTS = 5
 #
 # Delay before retrying a full configure-verification pass after a mismatch or
 # a readback/state error.
-_HP4192A_VERIFY_RETRY_DELAY_S = 0.15
+_HP4192A_VERIFY_RETRY_DELAY_S = 0.1
 #
 # Number of full verification passes after `configure()` has sent its commands.
 # This is broader than numeric readback retry: it also covers display-family
 # and circuit-mode mismatches.
-_HP4192A_VERIFY_ATTEMPTS = 3
+_HP4192A_VERIFY_ATTEMPTS = 5
 
 _IMPLIED_CIRCUIT_MODE_FOR_DISPLAY_A: dict[str, str] = {
     "impedance": "series",
