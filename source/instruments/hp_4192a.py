@@ -140,6 +140,8 @@ _DISPLAY_B_CODE_TO_GET_VALUE: dict[str, str] = {
 }
 
 _DISPLAY_A_CODE_TO_CIRCUIT_MODE: dict[str, str] = {
+    "ZF": "series",
+    "YF": "parallel",
     "LS": "series",
     "CS": "series",
     "LP": "parallel",
@@ -161,6 +163,10 @@ _HP4192A_TRIGGER_SETTLE_S = 0.03
 _HP4192A_POST_CONFIG_SETTLE_S = 0.03
 _HP4192A_READBACK_RETRY_DELAY_S = 0.05
 _HP4192A_READBACK_ATTEMPTS = 2
+
+_IMPLIED_CIRCUIT_MODE_FOR_DISPLAY_A: dict[str, str] = {
+    "impedance": "series",
+}
 
 
 @dataclass(slots=True)
@@ -358,9 +364,10 @@ class HP4192A(Instrument):
         Important limitation
         --------------------
         `circuit_mode` cannot always be read directly on the 4192A. The
-        current driver infers it from DISPLAY A function codes such as `LS`,
-        `LP`, `CS`, and `CP`. If the current display does not expose that
-        information, `get("circuit_mode")` raises an error instead of guessing.
+        current driver infers it from DISPLAY A function codes such as `ZF`,
+        `YF`, `LS`, `LP`, `CS`, and `CP`. If the current display does not
+        expose that information, `get("circuit_mode")` raises an error instead
+        of guessing.
         """
 
         if parameter_name == "frequency_hz":
@@ -448,6 +455,15 @@ class HP4192A(Instrument):
             `ping()` reports circuit mode only when it can be inferred from the
             current DISPLAY A readback, for example ``LS`` or ``CP``.
 
+            HP 4192A note for the Z/Y family:
+            - `display_a="impedance"` requires series interpretation
+            - the driver therefore forces series mode for that display family
+              when `circuit_mode` is omitted
+            - if `display_a="impedance"` is combined with
+              `circuit_mode="parallel"` or `circuit_mode="auto"`, the driver
+              raises an error because that conflicts with the requested
+              high-level quantity
+
         display_a, display_b:
             High-level measurement display selection.
             If either keyword is provided, both must be provided together.
@@ -455,6 +471,10 @@ class HP4192A(Instrument):
             If `display_a` is `inductance` or `capacitance`, `circuit_mode`
             must also be provided explicitly. This keeps the API clear about
             whether you want series or parallel interpretation.
+
+            If `display_a` is `impedance`, the driver uses series mode because
+            that is how the HP 4192A exposes impedance rather than admittance
+            in the shared Z/Y family.
 
             Currently supported pairs:
             - ``display_a="impedance"``, ``display_b="phase_deg"``
@@ -513,6 +533,7 @@ class HP4192A(Instrument):
         expected_frequency_hz: float | None = None
         expected_bias_voltage_v: float | None = None
         expected_osc_level_v: float | None = None
+        effective_circuit_mode = circuit_mode
 
         if frequency_hz is not None:
             frequency_hz = _validate_frequency_hz(frequency_hz)
@@ -532,17 +553,29 @@ class HP4192A(Instrument):
             commands.append(_format_osc_level_set_command(osc_level_v))
             latest_display_c_recall_code = "OLR"
 
-        if circuit_mode is not None:
-            commands.append(_get_circuit_mode_code(circuit_mode))
-
         if display_a is not None or display_b is not None:
             if display_a is None or display_b is None:
                 raise ValueError("display_a and display_b must be provided together")
+
+            implied_circuit_mode = _IMPLIED_CIRCUIT_MODE_FOR_DISPLAY_A.get(display_a)
+            if implied_circuit_mode is not None:
+                if circuit_mode is None:
+                    effective_circuit_mode = implied_circuit_mode
+                elif circuit_mode != implied_circuit_mode:
+                    raise ValueError(
+                        f"display_a={display_a!r} requires circuit_mode={implied_circuit_mode!r}"
+                    )
+
             if display_a in {"inductance", "capacitance"} and circuit_mode is None:
                 raise ValueError(
                     "display_a='inductance' or display_a='capacitance' "
                     "require circuit_mode to be set explicitly"
                 )
+
+        if effective_circuit_mode is not None:
+            commands.append(_get_circuit_mode_code(effective_circuit_mode))
+
+        if display_a is not None and display_b is not None:
             commands.extend(_get_display_pair_codes(display_a, display_b))
 
         for command in commands:
@@ -556,7 +589,7 @@ class HP4192A(Instrument):
 
             if any(
                 value is not None
-                for value in (frequency_hz, circuit_mode, display_a, display_b)
+                for value in (frequency_hz, effective_circuit_mode, display_a, display_b)
             ):
                 snapshot_for_display_checks = self._read_output_snapshot("FRR")
 
@@ -644,7 +677,7 @@ class HP4192A(Instrument):
                     actual_text=actual_display_b_name,
                 )
 
-            if circuit_mode is not None:
+            if effective_circuit_mode is not None:
                 if snapshot_for_display_checks is None:
                     raise ConfigurationVerificationError(
                         "circuit_mode was changed but no display readback was captured"
@@ -658,10 +691,10 @@ class HP4192A(Instrument):
                         format_configure_unverified(
                             self.instrument_name,
                             "circuit_mode",
-                            circuit_mode,
+                            effective_circuit_mode,
                         )
                     )
-                elif circuit_mode == "auto":
+                elif effective_circuit_mode == "auto":
                     print(
                         format_configure_adjusted(
                             self.instrument_name,
@@ -670,10 +703,10 @@ class HP4192A(Instrument):
                             actual_circuit_mode,
                         )
                     )
-                elif actual_circuit_mode != circuit_mode:
+                elif actual_circuit_mode != effective_circuit_mode:
                     raise ConfigurationVerificationError(
                         "circuit_mode verification failed: "
-                        f"requested {circuit_mode!r}, instrument reports {actual_circuit_mode!r}"
+                        f"requested {effective_circuit_mode!r}, instrument reports {actual_circuit_mode!r}"
                     )
                 else:
                     print(

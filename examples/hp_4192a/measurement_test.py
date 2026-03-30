@@ -147,6 +147,7 @@ def main() -> None:
             "preparation": "Leave the measurement input open with no DUT connected.",
             "configure_kwargs": {
                 **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "series",
                 "display_a": "impedance",
                 "display_b": "phase_deg",
             },
@@ -161,6 +162,7 @@ def main() -> None:
             "preparation": f"Connect the known DUT: {KNOWN_DUT_DESCRIPTION}.",
             "configure_kwargs": {
                 **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "series",
                 "display_a": "impedance",
                 "display_b": "phase_deg",
             },
@@ -176,6 +178,7 @@ def main() -> None:
             "preparation": f"Keep the same DUT connected: {KNOWN_DUT_DESCRIPTION}.",
             "configure_kwargs": {
                 **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "series",
                 "display_a": "impedance",
                 "display_b": "phase_rad",
             },

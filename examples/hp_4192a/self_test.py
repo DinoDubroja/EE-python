@@ -60,6 +60,7 @@ CORE_STEPS: list[dict[str, object]] = [
         "title": "Impedance and phase in degrees at 1 kHz",
         "configure_kwargs": {
             "frequency_hz": 1_000.0,
+            "circuit_mode": "series",
             "display_a": "impedance",
             "display_b": "phase_deg",
         },
@@ -67,17 +68,20 @@ CORE_STEPS: list[dict[str, object]] = [
             "frequency_hz": 1_000.0,
             "display_a": "impedance",
             "display_b": "phase_deg",
+            "circuit_mode": "series",
         },
         "ping_checks": {
             "spot frequency": "1 kHz",
             "display A": "impedance",
             "display B": "phase (deg)",
+            "circuit mode": "series",
         },
     },
     {
         "title": "Impedance and phase in radians at 10 kHz",
         "configure_kwargs": {
             "frequency_hz": 10_000.0,
+            "circuit_mode": "series",
             "display_a": "impedance",
             "display_b": "phase_rad",
         },
@@ -85,11 +89,13 @@ CORE_STEPS: list[dict[str, object]] = [
             "frequency_hz": 10_000.0,
             "display_a": "impedance",
             "display_b": "phase_rad",
+            "circuit_mode": "series",
         },
         "ping_checks": {
             "spot frequency": "10 kHz",
             "display A": "impedance",
             "display B": "phase (rad)",
+            "circuit mode": "series",
         },
     },
     {
@@ -231,6 +237,7 @@ MEASUREMENT_STEPS: list[dict[str, object]] = [
         "configure_kwargs": {
             "frequency_hz": KNOWN_DUT_FREQUENCY_HZ,
             "osc_level_v": KNOWN_DUT_OSC_LEVEL_V,
+            "circuit_mode": "series",
             "display_a": "impedance",
             "display_b": "phase_deg",
         },
@@ -240,6 +247,7 @@ MEASUREMENT_STEPS: list[dict[str, object]] = [
         "configure_kwargs": {
             "frequency_hz": KNOWN_DUT_FREQUENCY_HZ,
             "osc_level_v": KNOWN_DUT_OSC_LEVEL_V,
+            "circuit_mode": "series",
             "display_a": "impedance",
             "display_b": "phase_rad",
         },

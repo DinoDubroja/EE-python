@@ -58,23 +58,27 @@ STEPS: list[dict[str, object]] = [
     {
         "title": "Set display pair to impedance and phase in degrees",
         "configure_kwargs": {
+            "circuit_mode": "series",
             "display_a": "impedance",
             "display_b": "phase_deg",
         },
         "checks": [
             "DISPLAY A should show impedance.",
             "DISPLAY B should show phase in degrees.",
+            "The instrument should be in series interpretation for the Z/Y family.",
         ],
     },
     {
         "title": "Set display pair to impedance and phase in radians",
         "configure_kwargs": {
+            "circuit_mode": "series",
             "display_a": "impedance",
             "display_b": "phase_rad",
         },
         "checks": [
             "DISPLAY A should still show impedance.",
             "DISPLAY B should now show phase in radians.",
+            "The instrument should still be in series interpretation for the Z/Y family.",
         ],
     },
     {

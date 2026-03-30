@@ -160,6 +160,9 @@ Important:
 
 - if DISPLAY A is `inductance` or `capacitance`, the Python API expects you to
   set `circuit_mode` explicitly as well
+- if DISPLAY A is `impedance`, the driver uses series interpretation for the
+  shared Z/Y family so the returned quantity is really impedance, not
+  admittance
 - if the instrument reports `overflow` or `uncalibrated`, `measure()` raises an
   error instead of returning extra status information
 
@@ -281,8 +284,8 @@ Current readback paths:
 
 Important limitation:
 
-- `get("circuit_mode")` is inferred from DISPLAY A codes such as `LS`, `LP`,
-  `CS`, and `CP`
+- `get("circuit_mode")` is inferred from DISPLAY A codes such as `ZF`, `YF`,
+  `LS`, `LP`, `CS`, and `CP`
 - if the current display does not expose that information, `get("circuit_mode")`
   raises an error instead of guessing
 
@@ -556,6 +559,8 @@ and `OLR`.
 
 Instead, `ping()` infers circuit mode from the returned DISPLAY A function code:
 
+- `ZF` -> impedance in series interpretation
+- `YF` -> admittance in parallel interpretation
 - `LS` -> inductance (series)
 - `LP` -> inductance (parallel)
 - `CS` -> capacitance (series)
@@ -563,6 +568,8 @@ Instead, `ping()` infers circuit mode from the returned DISPLAY A function code:
 
 So:
 
+- if DISPLAY A returns `ZF`, `ping()` reports `series`
+- if DISPLAY A returns `YF`, `ping()` reports `parallel`
 - if DISPLAY A returns `LS` or `CS`, `ping()` reports `series`
 - if DISPLAY A returns `LP` or `CP`, `ping()` reports `parallel`
 
@@ -602,6 +609,13 @@ From table `3-23`, the driver currently uses:
 - `display_a="impedance", display_b="phase_deg"` -> `A1`, `B1`
 - `display_a="impedance", display_b="phase_rad"` -> `A1`, `B2`
 
+Important:
+
+- on the HP 4192A, the `A1` Z/Y family is shared
+- the driver therefore uses `circuit_mode="series"` for `display_a="impedance"`
+- if the instrument is left in parallel interpretation, the same `A1` family
+  can read back as `YF` which means admittance rather than impedance
+
 #### Inductance
 
 - `display_a="inductance", display_b="quality_factor"` -> `A3`, `B1`
@@ -614,6 +628,8 @@ From table `3-23`, the driver currently uses:
 
 Important:
 
+- for `impedance`, the driver uses series interpretation in the shared Z/Y
+  family so the readback stays in impedance rather than admittance
 - for `inductance` and `capacitance`, also set `circuit_mode`
 - that keeps the series/parallel interpretation explicit in the high-level API
 

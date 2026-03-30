@@ -73,5 +73,7 @@ Current implementation scope is intentionally small:
   - `circuit_mode`
   - `display_a`
   - `display_b`
+  - for `display_a="impedance"`, the driver uses series interpretation in the
+    shared Z/Y family so the readback stays in impedance rather than admittance
 - `measure()` returns one current DISPLAY A/B numeric measurement pair using
   the instrument's present display setup
