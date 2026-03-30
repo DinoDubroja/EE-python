@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 import math
 import re
+import time
 from typing import Literal, TypeAlias
 
 from .instrument import (
@@ -153,6 +154,14 @@ _CIRCUIT_MODE_TO_CODE: dict[str, str] = {
 
 _DISPLAY_C_VOLTAGE_UNIT_CODES = {"V", "Y"}
 
+# The 4192A is noticeably happier when command/readback sequences are not sent
+# at full PC speed. Keep these short so bench use stays responsive.
+_HP4192A_COMMAND_DELAY_S = 0.01
+_HP4192A_TRIGGER_SETTLE_S = 0.03
+_HP4192A_POST_CONFIG_SETTLE_S = 0.03
+_HP4192A_READBACK_RETRY_DELAY_S = 0.05
+_HP4192A_READBACK_ATTEMPTS = 2
+
 
 @dataclass(slots=True)
 class _DisplayField:
@@ -278,7 +287,7 @@ class HP4192A(Instrument):
                 state_rows["circuit mode"] = circuit_mode
 
             try:
-                frequency_hz = _parse_spot_frequency_hz(frequency_snapshot)
+                frequency_hz = self._read_spot_frequency_hz()
             except Exception as exc:
                 notes.append(f"Could not parse spot frequency from DISPLAY C: {exc}")
             else:
@@ -355,8 +364,7 @@ class HP4192A(Instrument):
         """
 
         if parameter_name == "frequency_hz":
-            snapshot = self._read_output_snapshot("FRR")
-            return _parse_spot_frequency_hz(snapshot)
+            return self._read_spot_frequency_hz()
 
         if parameter_name == "bias_voltage_v":
             return self._read_display_c_number(
@@ -538,10 +546,13 @@ class HP4192A(Instrument):
             commands.extend(_get_display_pair_codes(display_a, display_b))
 
         for command in commands:
-            self._device.write(command)
+            self._write_command(command)
 
         try:
             snapshot_for_display_checks: _OutputSnapshot | None = None
+
+            if commands:
+                time.sleep(_HP4192A_POST_CONFIG_SETTLE_S)
 
             if any(
                 value is not None
@@ -555,7 +566,7 @@ class HP4192A(Instrument):
                         "frequency_hz was changed but no frequency readback was captured"
                     )
 
-                actual_frequency_hz = _parse_spot_frequency_hz(snapshot_for_display_checks)
+                actual_frequency_hz = self._read_spot_frequency_hz()
                 _verify_numeric_setting(
                     instrument_name=self.instrument_name,
                     parameter_name="frequency_hz",
@@ -674,7 +685,7 @@ class HP4192A(Instrument):
                     )
         finally:
             if latest_display_c_recall_code is not None:
-                self._device.write(latest_display_c_recall_code)
+                self._write_command(latest_display_c_recall_code)
 
     def measure(self) -> HP4192AMeasurement:
         """
@@ -731,6 +742,29 @@ class HP4192A(Instrument):
 
         self._device.close()
 
+    def _read_spot_frequency_hz(self) -> float:
+        return self._retry_readback(
+            lambda: _parse_spot_frequency_hz(self._read_output_snapshot("FRR")),
+            parameter_name="spot frequency",
+        )
+
+    def _retry_readback(self, reader, *, parameter_name: str):
+        last_exception: Exception | None = None
+
+        for attempt_index in range(_HP4192A_READBACK_ATTEMPTS):
+            try:
+                return reader()
+            except Exception as exc:
+                last_exception = exc
+                if attempt_index + 1 >= _HP4192A_READBACK_ATTEMPTS:
+                    break
+                time.sleep(_HP4192A_READBACK_RETRY_DELAY_S)
+
+        raise RuntimeError(
+            f"{parameter_name} readback failed after {_HP4192A_READBACK_ATTEMPTS} attempts: "
+            f"{last_exception}"
+        ) from last_exception
+
     def _read_display_c_number(
         self,
         recall_code: str,
@@ -738,10 +772,12 @@ class HP4192A(Instrument):
         expected_unit_codes: set[str],
         parameter_name: str,
     ) -> float:
-        snapshot = self._read_output_snapshot(recall_code)
-        return _parse_display_c_number(
-            snapshot.display_c,
-            expected_unit_codes=expected_unit_codes,
+        return self._retry_readback(
+            lambda: _parse_display_c_number(
+                self._read_output_snapshot(recall_code).display_c,
+                expected_unit_codes=expected_unit_codes,
+                parameter_name=parameter_name,
+            ),
             parameter_name=parameter_name,
         )
 
@@ -761,16 +797,21 @@ class HP4192A(Instrument):
           setup, device clear reset the frequency to 100 kHz.
         """
 
-        self._device.write("F1")
+        self._write_command("F1")
         if recall_code is not None:
-            self._device.write(recall_code)
-        self._device.write("EX")
+            self._write_command(recall_code)
+        self._write_command("EX", settle_s=_HP4192A_TRIGGER_SETTLE_S)
 
         raw = self._device.read().strip()
         if not raw:
             raise RuntimeError("instrument returned no data")
 
         return _parse_output_snapshot(raw)
+
+    def _write_command(self, command: str, *, settle_s: float = _HP4192A_COMMAND_DELAY_S) -> None:
+        self._device.write(command)
+        if settle_s > 0.0:
+            time.sleep(settle_s)
 
 
 def _validate_frequency_hz(value: float) -> float:
