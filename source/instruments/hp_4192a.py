@@ -158,10 +158,28 @@ _DISPLAY_C_VOLTAGE_UNIT_CODES = {"V", "Y"}
 
 # The 4192A is noticeably happier when command/readback sequences are not sent
 # at full PC speed. Keep these short so bench use stays responsive.
+#
+# Per-command delay after a plain write. This is intentionally left at zero
+# because adding a gap after every command caused regressions. The more useful
+# place to wait is after `EX` and after a full configure batch.
 _HP4192A_COMMAND_DELAY_S = 0.0
+#
+# Delay after sending `EX` before reading the instrument response. This gives
+# the 4192A time to complete the triggered output/update cycle.
 _HP4192A_TRIGGER_SETTLE_S = 0.03
-_HP4192A_POST_CONFIG_SETTLE_S = 0.03
+#
+# Delay after a full configure batch before the driver starts verification
+# readback. This is the main "let the instrument settle into the new state"
+# pause, and it has the most impact on intermittent configure/self-test
+# mismatches.
+_HP4192A_POST_CONFIG_SETTLE_S = 0.08
+#
+# Delay before a retry when a numeric readback fails to parse or comes back in
+# the wrong output state.
 _HP4192A_READBACK_RETRY_DELAY_S = 0.05
+#
+# Number of attempts for numeric readbacks such as frequency, bias, and
+# oscillator level.
 _HP4192A_READBACK_ATTEMPTS = 2
 
 _IMPLIED_CIRCUIT_MODE_FOR_DISPLAY_A: dict[str, str] = {
