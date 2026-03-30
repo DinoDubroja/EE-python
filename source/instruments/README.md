@@ -65,5 +65,5 @@ Current implementation scope is intentionally small:
   - `circuit_mode`
   - `display_a`
   - `display_b`
-- `measure()` returns one current DISPLAY A/B/C measurement snapshot using the
-  instrument's present display setup
+- `measure()` returns one current DISPLAY A/B numeric measurement pair using
+  the instrument's present display setup

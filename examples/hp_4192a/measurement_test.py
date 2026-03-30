@@ -7,16 +7,15 @@ This script is for bench validation, not automated testing.
 
 It checks the measurement-read path step by step:
 
-1. open-circuit / overflow behavior
+1. open-circuit behavior when no actual numeric reading exists
 2. one known DUT in a direct measurement mode
 3. the same DUT in an impedance/phase view
 
 This is the script to use when you want to answer questions like:
 
 - does `measure()` return the same quantity the front panel is showing?
-- does `measure()` report overflow as overflow instead of pretending it is
-  a normal number?
-- do the high-level labels match the current display setup?
+- does `measure()` fail cleanly when no actual numeric reading exists?
+- do the returned numeric values match the current display setup?
 
 How to use
 ----------
@@ -60,19 +59,10 @@ def wait_for_user(message: str) -> None:
 
 def print_measurement(reading) -> None:
     print()
-    print(reading.to_text())
-    print()
-    print("Structured values")
-    print("-----------------")
-    print(f"display_a.label: {reading.display_a.label}")
-    print(f"display_a.value: {reading.display_a.value!r}")
-    print(f"display_a.status: {reading.display_a.status}")
-    print(f"display_b.label: {reading.display_b.label}")
-    print(f"display_b.value: {reading.display_b.value!r}")
-    print(f"display_b.status: {reading.display_b.status}")
-    print(f"display_c.unit_code: {reading.display_c.unit_code}")
-    print(f"display_c.raw_value: {reading.display_c.raw_value}")
-    print(f"raw: {reading.raw}")
+    print("Returned measurement values")
+    print("---------------------------")
+    print(f"display_a: {reading.display_a}")
+    print(f"display_b: {reading.display_b}")
 
 
 def run_step(
@@ -84,6 +74,7 @@ def run_step(
     preparation: str,
     configure_kwargs: dict[str, object],
     checks: list[str],
+    expect_measure_error: bool = False,
 ) -> None:
     print()
     print("=" * 72)
@@ -112,8 +103,20 @@ def run_step(
     print()
     print("measure() result")
     print("----------------")
-    reading = meter.measure()
-    print_measurement(reading)
+    try:
+        reading = meter.measure()
+    except Exception as exc:
+        if not expect_measure_error:
+            raise
+
+        print(f"measure() raised: {exc}")
+    else:
+        if expect_measure_error:
+            raise RuntimeError(
+                "measure() returned numeric values, but this step expected it to fail"
+            )
+
+        print_measurement(reading)
 
     wait_for_user("Compare the returned data with the front panel before continuing.")
 
@@ -121,7 +124,7 @@ def run_step(
 def main() -> None:
     steps = [
         {
-            "title": "Open input: impedance and phase should show overflow status",
+            "title": "Open input: measure() should fail because there is no actual reading",
             "preparation": "Leave the measurement input open with no DUT connected.",
             "configure_kwargs": {
                 "display_a": "impedance",
@@ -129,10 +132,9 @@ def main() -> None:
             },
             "checks": [
                 "The instrument should be in an open-circuit condition.",
-                "measure() should report overflow status, not pretend the returned raw number is a normal reading.",
-                "DISPLAY A label should be impedance.",
-                "DISPLAY B label should be phase (deg).",
+                "measure() should raise an error instead of returning fake numeric values.",
             ],
+            "expect_measure_error": True,
         },
         {
             "title": "Known DUT: direct measurement in the chosen working mode",
@@ -146,9 +148,10 @@ def main() -> None:
             },
             "checks": [
                 "DISPLAY A and DISPLAY B should match the configured measurement mode.",
-                "measure() should return the same quantity family the front panel shows.",
+                "measure() should return two numeric values only.",
                 "The numeric values should be plausible for the connected DUT.",
             ],
+            "expect_measure_error": False,
         },
         {
             "title": "Known DUT: same DUT in impedance and phase view",
@@ -164,6 +167,7 @@ def main() -> None:
                 "DISPLAY B should show phase in degrees.",
                 "measure() should now return impedance/phase data for the same DUT.",
             ],
+            "expect_measure_error": False,
         },
     ]
 
@@ -188,6 +192,7 @@ def main() -> None:
                 preparation=step["preparation"],
                 configure_kwargs=step["configure_kwargs"],
                 checks=step["checks"],
+                expect_measure_error=step["expect_measure_error"],
             )
     finally:
         meter.close()

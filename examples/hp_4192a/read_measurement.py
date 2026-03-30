@@ -10,6 +10,11 @@ By default, the script does not change the instrument setup. It simply reads
 whatever the instrument is currently configured to show on DISPLAY A and
 DISPLAY B.
 
+`measure()` now returns only two numeric values:
+
+- `reading.display_a`
+- `reading.display_b`
+
 Optional behavior
 -----------------
 If you want the script to first force a known display pair, set
@@ -80,18 +85,13 @@ def main() -> None:
         reading = meter.measure()
 
         print()
-        print(reading.to_text())
+        print(f"DISPLAY A value: {reading.display_a}")
+        print(f"DISPLAY B value: {reading.display_b}")
 
         print()
         print("Access individual values in Python like this:")
-        print(f"  reading.display_a.label = {reading.display_a.label!r}")
-        print(f"  reading.display_a.value = {reading.display_a.value!r}")
-        print(f"  reading.display_a.status = {reading.display_a.status!r}")
-        print(f"  reading.display_b.label = {reading.display_b.label!r}")
-        print(f"  reading.display_b.value = {reading.display_b.value!r}")
-        print(f"  reading.display_b.status = {reading.display_b.status!r}")
-        print(f"  reading.display_c.unit_code = {reading.display_c.unit_code!r}")
-        print(f"  reading.display_c.raw_value = {reading.display_c.raw_value!r}")
+        print(f"  reading.display_a = {reading.display_a!r}")
+        print(f"  reading.display_b = {reading.display_b!r}")
     finally:
         meter.close()
         print()

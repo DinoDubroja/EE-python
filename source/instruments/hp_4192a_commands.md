@@ -121,15 +121,14 @@ The current driver also supports:
 - `measure()`
 
 This is the higher-level data-read function for the 4192A in this repo.
-It returns the current DISPLAY A/B measurement values together with the current
-DISPLAY C field and the raw returned string.
+It returns only the current DISPLAY A and DISPLAY B numeric values.
 
 Important:
 
 - if DISPLAY A is `inductance` or `capacitance`, the Python API expects you to
   set `circuit_mode` explicitly as well
-- if the instrument reports `overflow` or `uncalibrated`, the driver keeps the
-  raw returned value text but does not treat it as a normal numeric value
+- if the instrument reports `overflow` or `uncalibrated`, `measure()` raises an
+  error instead of returning extra status information
 
 ### `configure()` Self-Check
 
@@ -203,14 +202,9 @@ Meaning:
 Because `measure()` does not send `FRR`, `BIR`, or `OLR`, it does not
 intentionally change which parameter DISPLAY C is following.
 
-Status handling:
-
-- `N` -> normal
-- `O` -> overflow
-- `U` -> uncalibrated
-
-When DISPLAY A or DISPLAY B comes back with `O` or `U`, `measure()` reports the
-status and keeps the raw text, but the parsed `.value` is `None`.
+If DISPLAY A or DISPLAY B comes back with `O` (overflow) or `U`
+(uncalibrated), `measure()` raises an error because there is no actual numeric
+measurement to return.
 
 ## How `ping()` Reads The Instrument
 
@@ -603,9 +597,8 @@ Python example:
 ```python
 reading = meter.measure()
 
-print(reading.display_a.label, reading.display_a.value)
-print(reading.display_b.label, reading.display_b.value)
-print(reading.display_c.unit_code, reading.display_c.raw_value)
+print(reading.display_a)
+print(reading.display_b)
 ```
 
 ### Read Spot Bias
@@ -710,8 +703,6 @@ Right now the active driver covers:
 - `measure()`
   - current DISPLAY A value
   - current DISPLAY B value
-  - current DISPLAY C field
-  - raw A/B/C output string
 
 More functionality should be added the same way:
 

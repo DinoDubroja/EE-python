@@ -6,7 +6,7 @@ Current scope:
   frequency, spot bias, and oscillator level
 - configure(): set spot frequency, spot bias, oscillator level, circuit mode,
   and a small supported set of display-function pairs
-- measure(): return one current A/B/C measurement snapshot
+- measure(): return one current A/B measurement pair
 """
 
 from __future__ import annotations
@@ -99,12 +99,6 @@ _DISPLAY_B_CODE_TO_NAME: dict[str, str] = {
     "UM": "unmeasure",
 }
 
-_DISPLAY_STATUS_CODE_TO_NAME: dict[str, str] = {
-    "N": "normal",
-    "O": "overflow",
-    "U": "uncalibrated",
-}
-
 _DISPLAY_A_CODE_TO_CIRCUIT_MODE: dict[str, str] = {
     "LS": "series",
     "CS": "series",
@@ -144,90 +138,15 @@ class _OutputSnapshot:
 
 
 @dataclass(slots=True)
-class HP4192AMeasurementField:
-    """
-    One measured display value returned by `measure()`.
-
-    Attributes
-    ----------
-    label:
-        Human-readable meaning of the display, for example `impedance` or
-        `phase (deg)`.
-    value:
-        Parsed numeric value when the returned text can be interpreted as a
-        real number. If parsing fails, this is `None` and `raw_value` still
-        contains the original text from the instrument.
-    raw_value:
-        Numeric text exactly as returned by the instrument for this display.
-    status_code:
-        First character of the DISPLAY A/B field from the HP 4192A output
-        string.
-    status:
-        Human-readable meaning of `status_code`, for example `normal` or
-        `overflow`.
-    deviation_mode_code:
-        Deviation-mode code from the DISPLAY A/B field.
-    """
-
-    label: str
-    value: float | None
-    raw_value: str
-    status_code: str
-    status: str
-    deviation_mode_code: str
-
-
-@dataclass(slots=True)
-class HP4192ADisplayCMeasurement:
-    """
-    Current DISPLAY C value returned together with a measurement snapshot.
-
-    `measure()` does not recall a new DISPLAY C parameter. It reports whatever
-    the instrument is already set to show on DISPLAY C.
-    """
-
-    unit_code: str
-    value: float | None
-    raw_value: str
-
-
-@dataclass(slots=True)
 class HP4192AMeasurement:
     """
-    One high-level HP 4192A measurement snapshot.
+    One high-level HP 4192A measurement result.
 
     This is the return type of `HP4192A.measure()`.
     """
 
-    display_a: HP4192AMeasurementField
-    display_b: HP4192AMeasurementField
-    display_c: HP4192ADisplayCMeasurement
-    circuit_mode: str | None
-    raw: str
-
-    def to_text(self) -> str:
-        """
-        Return a readable text view of the measured values.
-        """
-
-        lines = ["HP 4192A Measurement", ""]
-        lines.append(
-            f"A: {self.display_a.label} = "
-            f"{_format_measurement_value(self.display_a)}"
-        )
-        lines.append(
-            f"B: {self.display_b.label} = "
-            f"{_format_measurement_value(self.display_b)}"
-        )
-        if self.circuit_mode is not None:
-            lines.append(f"circuit mode: {self.circuit_mode}")
-        lines.append(
-            f"C: {self.display_c.unit_code}{self.display_c.raw_value}"
-        )
-        return "\n".join(lines)
-
-    def __str__(self) -> str:
-        return self.to_text()
+    display_a: float
+    display_b: float
 
 
 class HP4192A(Instrument):
@@ -646,24 +565,21 @@ class HP4192A(Instrument):
 
     def measure(self) -> HP4192AMeasurement:
         """
-        Trigger one HP 4192A measurement and return the current display data.
+        Trigger one HP 4192A measurement and return the current DISPLAY A/B
+        values.
 
         Return value
         ------------
-        The returned `HP4192AMeasurement` contains:
+        The returned `HP4192AMeasurement` contains only:
 
-        - DISPLAY A label and value
-        - DISPLAY B label and value
-        - current DISPLAY C raw/unit information
-        - inferred circuit mode when DISPLAY A exposes it
-        - the raw instrument output string for debugging
+        - `display_a`: numeric value currently shown on DISPLAY A
+        - `display_b`: numeric value currently shown on DISPLAY B
 
         Status handling
         ---------------
         If DISPLAY A or DISPLAY B reports `overflow` or `uncalibrated`,
-        `measure()` keeps the raw returned numeric text but does not treat it as
-        a normal numeric value. In that case the field `.value` is `None` and
-        `.status` explains why.
+        `measure()` raises an error instead of returning extra status fields.
+        This keeps the return value limited to actual numeric measurements only.
 
         Manual-backed measurement path
         ------------------------------
@@ -678,47 +594,21 @@ class HP4192A(Instrument):
         - `measure()` does not send a recall code such as `FRR` or `BIR`.
         - Because of that, it does not intentionally change which parameter is
           shown on DISPLAY C.
-        - The returned A/B meanings depend on the current display setup, for
+        - The returned numeric values depend on the current display setup, for
           example impedance/phase or inductance/Q.
         """
 
         snapshot = self._read_output_snapshot()
 
-        display_a_label = _DISPLAY_A_CODE_TO_NAME.get(
-            snapshot.display_a.function_code,
-            f"unknown ({snapshot.display_a.function_code})",
-        )
-        display_b_label = _DISPLAY_B_CODE_TO_NAME.get(
-            snapshot.display_b.function_code,
-            f"unknown ({snapshot.display_b.function_code})",
-        )
-
         return HP4192AMeasurement(
-            display_a=HP4192AMeasurementField(
-                label=display_a_label,
-                value=_parse_measurement_value(snapshot.display_a),
-                raw_value=snapshot.display_a.value_text,
-                status_code=snapshot.display_a.status_code,
-                status=_get_display_status_name(snapshot.display_a.status_code),
-                deviation_mode_code=snapshot.display_a.deviation_mode_code,
+            display_a=_parse_numeric_measurement_field(
+                snapshot.display_a,
+                display_name="DISPLAY A",
             ),
-            display_b=HP4192AMeasurementField(
-                label=display_b_label,
-                value=_parse_measurement_value(snapshot.display_b),
-                raw_value=snapshot.display_b.value_text,
-                status_code=snapshot.display_b.status_code,
-                status=_get_display_status_name(snapshot.display_b.status_code),
-                deviation_mode_code=snapshot.display_b.deviation_mode_code,
+            display_b=_parse_numeric_measurement_field(
+                snapshot.display_b,
+                display_name="DISPLAY B",
             ),
-            display_c=HP4192ADisplayCMeasurement(
-                unit_code=snapshot.display_c.unit_code,
-                value=_try_parse_float(snapshot.display_c.value_text),
-                raw_value=snapshot.display_c.value_text,
-            ),
-            circuit_mode=_DISPLAY_A_CODE_TO_CIRCUIT_MODE.get(
-                snapshot.display_a.function_code
-            ),
-            raw=snapshot.raw,
         )
 
     def close(self) -> None:
@@ -976,22 +866,27 @@ def _try_parse_float(value_text: str) -> float | None:
         return None
 
 
-def _parse_measurement_value(field: _DisplayField) -> float | None:
+def _parse_numeric_measurement_field(field: _DisplayField, *, display_name: str) -> float:
+    if field.status_code == "O":
+        raise RuntimeError(
+            f"{display_name} measurement overflowed; no actual numeric value is available"
+        )
+    if field.status_code == "U":
+        raise RuntimeError(
+            f"{display_name} measurement is uncalibrated; no actual numeric value is available"
+        )
     if field.status_code != "N":
-        return None
-    return _try_parse_float(field.value_text)
+        raise RuntimeError(
+            f"{display_name} measurement returned unknown status code {field.status_code!r}"
+        )
 
+    value = _try_parse_float(field.value_text)
+    if value is None:
+        raise RuntimeError(
+            f"{display_name} measurement could not be parsed from {field.value_text!r}"
+        )
 
-def _get_display_status_name(status_code: str) -> str:
-    return _DISPLAY_STATUS_CODE_TO_NAME.get(status_code, f"unknown ({status_code})")
-
-
-def _format_measurement_value(field: HP4192AMeasurementField) -> str:
-    if field.status_code != "N":
-        return f"{field.status} (raw {field.raw_value})"
-    if field.value is None:
-        return field.raw_value
-    return f"{field.value:g}"
+    return value
 
 
 def _format_spot_frequency_set_command(frequency_hz: float) -> str:
