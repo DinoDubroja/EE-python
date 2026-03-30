@@ -17,7 +17,7 @@ from decimal import Decimal, ROUND_HALF_UP
 import math
 import re
 import time
-from typing import Literal, TypeAlias
+from typing import Callable, Literal, TypeAlias
 
 from .instrument import (
     ConfigurationVerificationError,
@@ -166,21 +166,30 @@ _HP4192A_COMMAND_DELAY_S = 0.0
 #
 # Delay after sending `EX` before reading the instrument response. This gives
 # the 4192A time to complete the triggered output/update cycle.
-_HP4192A_TRIGGER_SETTLE_S = 0.03
+_HP4192A_TRIGGER_SETTLE_S = 0.01
 #
 # Delay after a full configure batch before the driver starts verification
 # readback. This is the main "let the instrument settle into the new state"
 # pause, and it has the most impact on intermittent configure/self-test
 # mismatches.
-_HP4192A_POST_CONFIG_SETTLE_S = 0.08
+_HP4192A_POST_CONFIG_SETTLE_S = 0.1
 #
 # Delay before a retry when a numeric readback fails to parse or comes back in
 # the wrong output state.
-_HP4192A_READBACK_RETRY_DELAY_S = 0.05
+_HP4192A_READBACK_RETRY_DELAY_S = 0.2
 #
 # Number of attempts for numeric readbacks such as frequency, bias, and
 # oscillator level.
-_HP4192A_READBACK_ATTEMPTS = 2
+_HP4192A_READBACK_ATTEMPTS = 5
+#
+# Delay before retrying a full configure-verification pass after a mismatch or
+# a readback/state error.
+_HP4192A_VERIFY_RETRY_DELAY_S = 0.15
+#
+# Number of full verification passes after `configure()` has sent its commands.
+# This is broader than numeric readback retry: it also covers display-family
+# and circuit-mode mismatches.
+_HP4192A_VERIFY_ATTEMPTS = 3
 
 _IMPLIED_CIRCUIT_MODE_FOR_DISPLAY_A: dict[str, str] = {
     "impedance": "series",
@@ -229,12 +238,29 @@ class HP4192A(Instrument):
     checked against the manual and selected for the current work are exposed.
     """
 
-    def __init__(self, device: VisaDevice):
+    def __init__(
+        self,
+        device: VisaDevice,
+        *,
+        trace_enabled: bool = False,
+        trace_print_live: bool = False,
+    ):
         super().__init__("HP 4192A LF Impedance Analyzer", device.resource_name)
         self._device = device
+        self._trace_enabled = trace_enabled
+        self._trace_print_live = trace_print_live
+        self._trace_started_at = time.monotonic()
+        self._trace_entries: list[str] = []
 
     @classmethod
-    def open(cls, resource_name: str, *, timeout_ms: int = 5000) -> "HP4192A":
+    def open(
+        cls,
+        resource_name: str,
+        *,
+        timeout_ms: int = 5000,
+        trace_enabled: bool = False,
+        trace_print_live: bool = False,
+    ) -> "HP4192A":
         """
         Open an HP 4192A through a VISA resource.
 
@@ -245,9 +271,19 @@ class HP4192A(Instrument):
             ``TCPIP0::192.168.1.244::gpib0,5::INSTR``.
         timeout_ms:
             VISA timeout in milliseconds.
+        trace_enabled:
+            When true, keep an in-memory trace of raw HP 4192A I/O for bench
+            debugging.
+        trace_print_live:
+            When true together with `trace_enabled`, print trace entries live
+            as they happen.
         """
 
-        return cls(VisaDevice(resource_name, timeout_ms=timeout_ms))
+        return cls(
+            VisaDevice(resource_name, timeout_ms=timeout_ms),
+            trace_enabled=trace_enabled,
+            trace_print_live=trace_print_live,
+        )
 
     def ping(self, *, show: bool = True) -> InstrumentReport:
         """
@@ -535,6 +571,10 @@ class HP4192A(Instrument):
         state back and prints one short confirmation line per changed
         parameter.
 
+        To reduce false failures from occasional stale readback, the driver
+        retries the full verification pass a small number of times before it
+        gives up and raises.
+
         Behavior:
         - if the actual instrument value matches the requested value, a normal
           confirmation line is printed
@@ -596,144 +636,38 @@ class HP4192A(Instrument):
         if display_a is not None and display_b is not None:
             commands.extend(_get_display_pair_codes(display_a, display_b))
 
+        requested_items = []
+        for key, value in (
+            ("frequency_hz", frequency_hz),
+            ("bias_voltage_v", bias_voltage_v),
+            ("osc_level_v", osc_level_v),
+            ("circuit_mode", effective_circuit_mode),
+            ("display_a", display_a),
+            ("display_b", display_b),
+        ):
+            if value is not None:
+                requested_items.append(f"{key}={value!r}")
+        if requested_items:
+            self._trace("CONFIG", ", ".join(requested_items))
+
         for command in commands:
             self._write_command(command)
 
         try:
-            snapshot_for_display_checks: _OutputSnapshot | None = None
-
-            if commands:
-                time.sleep(_HP4192A_POST_CONFIG_SETTLE_S)
-
-            if any(
-                value is not None
-                for value in (frequency_hz, effective_circuit_mode, display_a, display_b)
-            ):
-                snapshot_for_display_checks = self._read_output_snapshot("FRR")
-
-            if frequency_hz is not None:
-                if snapshot_for_display_checks is None:
-                    raise ConfigurationVerificationError(
-                        "frequency_hz was changed but no frequency readback was captured"
-                    )
-
-                actual_frequency_hz = _parse_spot_frequency_hz(snapshot_for_display_checks)
-                _verify_numeric_setting(
-                    instrument_name=self.instrument_name,
-                    parameter_name="frequency_hz",
-                    requested_value=frequency_hz,
-                    expected_value=expected_frequency_hz,
-                    actual_value=actual_frequency_hz,
-                    requested_text=_format_frequency_hz(frequency_hz),
-                    actual_text=_format_frequency_hz(actual_frequency_hz),
-                    absolute_tolerance=1e-6,
-                )
-
-            if bias_voltage_v is not None:
-                actual_bias_voltage_v = self._read_display_c_number(
-                    "BIR",
-                    expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
-                    parameter_name="spot bias",
-                )
-                _verify_numeric_setting(
-                    instrument_name=self.instrument_name,
-                    parameter_name="bias_voltage_v",
-                    requested_value=bias_voltage_v,
-                    expected_value=expected_bias_voltage_v,
-                    actual_value=actual_bias_voltage_v,
-                    requested_text=f"{_trim_zeros(bias_voltage_v)} V",
-                    actual_text=f"{_trim_zeros(actual_bias_voltage_v)} V",
-                    absolute_tolerance=1e-9,
-                )
-
-            if osc_level_v is not None:
-                actual_osc_level_v = self._read_display_c_number(
-                    "OLR",
-                    expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
-                    parameter_name="oscillator level",
-                )
-                _verify_numeric_setting(
-                    instrument_name=self.instrument_name,
-                    parameter_name="osc_level_v",
-                    requested_value=osc_level_v,
-                    expected_value=expected_osc_level_v,
-                    actual_value=actual_osc_level_v,
-                    requested_text=f"{_trim_zeros(osc_level_v)} V",
-                    actual_text=f"{_trim_zeros(actual_osc_level_v)} V",
-                    absolute_tolerance=1e-9,
-                )
-
-            if display_a is not None and display_b is not None:
-                if snapshot_for_display_checks is None:
-                    raise ConfigurationVerificationError(
-                        "display_a/display_b were changed but no display readback was captured"
-                    )
-
-                actual_display_a_name = _DISPLAY_A_CODE_TO_NAME.get(
-                    snapshot_for_display_checks.display_a.function_code,
-                    f"unknown ({snapshot_for_display_checks.display_a.function_code})",
-                )
-                actual_display_b_name = _DISPLAY_B_CODE_TO_NAME.get(
-                    snapshot_for_display_checks.display_b.function_code,
-                    f"unknown ({snapshot_for_display_checks.display_b.function_code})",
-                )
-
-                _verify_display_setting(
-                    instrument_name=self.instrument_name,
-                    parameter_name="display_a",
-                    requested_value=display_a,
-                    actual_code=snapshot_for_display_checks.display_a.function_code,
-                    allowed_codes=_DISPLAY_A_REQUEST_TO_CODES[display_a],
-                    actual_text=actual_display_a_name,
-                )
-                _verify_display_setting(
-                    instrument_name=self.instrument_name,
-                    parameter_name="display_b",
-                    requested_value=display_b,
-                    actual_code=snapshot_for_display_checks.display_b.function_code,
-                    allowed_codes=_DISPLAY_B_REQUEST_TO_CODES[display_b],
-                    actual_text=actual_display_b_name,
-                )
-
-            if effective_circuit_mode is not None:
-                if snapshot_for_display_checks is None:
-                    raise ConfigurationVerificationError(
-                        "circuit_mode was changed but no display readback was captured"
-                    )
-
-                actual_circuit_mode = _DISPLAY_A_CODE_TO_CIRCUIT_MODE.get(
-                    snapshot_for_display_checks.display_a.function_code
-                )
-                if actual_circuit_mode is None:
-                    print(
-                        format_configure_unverified(
-                            self.instrument_name,
-                            "circuit_mode",
-                            effective_circuit_mode,
-                        )
-                    )
-                elif effective_circuit_mode == "auto":
-                    print(
-                        format_configure_adjusted(
-                            self.instrument_name,
-                            "circuit_mode",
-                            "auto",
-                            actual_circuit_mode,
-                        )
-                    )
-                elif actual_circuit_mode != effective_circuit_mode:
-                    raise ConfigurationVerificationError(
-                        "circuit_mode verification failed: "
-                        f"requested {effective_circuit_mode!r}, instrument reports {actual_circuit_mode!r}"
-                    )
-                else:
-                    print(
-                        format_configure_success(
-                            self.instrument_name,
-                            "circuit_mode",
-                            actual_circuit_mode,
-                        )
-                    )
+            messages = self._verify_configuration_with_retry(
+                frequency_hz=frequency_hz,
+                expected_frequency_hz=expected_frequency_hz,
+                bias_voltage_v=bias_voltage_v,
+                expected_bias_voltage_v=expected_bias_voltage_v,
+                osc_level_v=osc_level_v,
+                expected_osc_level_v=expected_osc_level_v,
+                effective_circuit_mode=effective_circuit_mode,
+                display_a=display_a,
+                display_b=display_b,
+                commands_were_sent=bool(commands),
+            )
+            for message in messages:
+                print(message)
         finally:
             if latest_display_c_recall_code is not None:
                 self._write_command(latest_display_c_recall_code)
@@ -786,6 +720,229 @@ class HP4192A(Instrument):
             ),
         )
 
+    def _verify_configuration_with_retry(
+        self,
+        *,
+        frequency_hz: float | None,
+        expected_frequency_hz: float | None,
+        bias_voltage_v: float | None,
+        expected_bias_voltage_v: float | None,
+        osc_level_v: float | None,
+        expected_osc_level_v: float | None,
+        effective_circuit_mode: HP4192ACircuitMode | None,
+        display_a: HP4192ADisplayA | None,
+        display_b: HP4192ADisplayB | None,
+        commands_were_sent: bool,
+    ) -> list[str]:
+        if commands_were_sent:
+            time.sleep(_HP4192A_POST_CONFIG_SETTLE_S)
+
+        last_exception: Exception | None = None
+        last_category = "unknown"
+
+        for attempt_index in range(_HP4192A_VERIFY_ATTEMPTS):
+            attempt_number = attempt_index + 1
+            self._trace(
+                "VERIFY",
+                f"attempt {attempt_number}/{_HP4192A_VERIFY_ATTEMPTS}",
+            )
+
+            try:
+                return self._verify_configuration_once(
+                    frequency_hz=frequency_hz,
+                    expected_frequency_hz=expected_frequency_hz,
+                    bias_voltage_v=bias_voltage_v,
+                    expected_bias_voltage_v=expected_bias_voltage_v,
+                    osc_level_v=osc_level_v,
+                    expected_osc_level_v=expected_osc_level_v,
+                    effective_circuit_mode=effective_circuit_mode,
+                    display_a=display_a,
+                    display_b=display_b,
+                )
+            except Exception as exc:
+                last_exception = exc
+                last_category = _classify_hp4192a_exception(exc)
+                self._trace(
+                    "VERIFY",
+                    f"attempt {attempt_number} failed ({last_category}): {exc}",
+                )
+
+                if attempt_number >= _HP4192A_VERIFY_ATTEMPTS:
+                    break
+
+                time.sleep(_HP4192A_VERIFY_RETRY_DELAY_S)
+
+        if isinstance(last_exception, ConfigurationVerificationError):
+            raise ConfigurationVerificationError(
+                "configure verification failed after "
+                f"{_HP4192A_VERIFY_ATTEMPTS} attempts "
+                f"({last_category}): {last_exception}"
+            ) from last_exception
+
+        raise RuntimeError(
+            "configure verification failed after "
+            f"{_HP4192A_VERIFY_ATTEMPTS} attempts "
+            f"({last_category}): {last_exception}"
+        ) from last_exception
+
+    def _verify_configuration_once(
+        self,
+        *,
+        frequency_hz: float | None,
+        expected_frequency_hz: float | None,
+        bias_voltage_v: float | None,
+        expected_bias_voltage_v: float | None,
+        osc_level_v: float | None,
+        expected_osc_level_v: float | None,
+        effective_circuit_mode: HP4192ACircuitMode | None,
+        display_a: HP4192ADisplayA | None,
+        display_b: HP4192ADisplayB | None,
+    ) -> list[str]:
+        messages: list[str] = []
+        snapshot_for_display_checks: _OutputSnapshot | None = None
+
+        if any(
+            value is not None
+            for value in (frequency_hz, effective_circuit_mode, display_a, display_b)
+        ):
+            snapshot_for_display_checks = self._read_output_snapshot("FRR")
+
+        if frequency_hz is not None:
+            if snapshot_for_display_checks is None:
+                raise ConfigurationVerificationError(
+                    "frequency_hz was changed but no frequency readback was captured"
+                )
+
+            actual_frequency_hz = _parse_spot_frequency_hz(snapshot_for_display_checks)
+            messages.append(
+                _verify_numeric_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="frequency_hz",
+                    requested_value=frequency_hz,
+                    expected_value=expected_frequency_hz,
+                    actual_value=actual_frequency_hz,
+                    requested_text=_format_frequency_hz(frequency_hz),
+                    actual_text=_format_frequency_hz(actual_frequency_hz),
+                    absolute_tolerance=1e-6,
+                )
+            )
+
+        if bias_voltage_v is not None:
+            actual_bias_voltage_v = self._read_display_c_number(
+                "BIR",
+                expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                parameter_name="spot bias",
+            )
+            messages.append(
+                _verify_numeric_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="bias_voltage_v",
+                    requested_value=bias_voltage_v,
+                    expected_value=expected_bias_voltage_v,
+                    actual_value=actual_bias_voltage_v,
+                    requested_text=f"{_trim_zeros(bias_voltage_v)} V",
+                    actual_text=f"{_trim_zeros(actual_bias_voltage_v)} V",
+                    absolute_tolerance=1e-9,
+                )
+            )
+
+        if osc_level_v is not None:
+            actual_osc_level_v = self._read_display_c_number(
+                "OLR",
+                expected_unit_codes=_DISPLAY_C_VOLTAGE_UNIT_CODES,
+                parameter_name="oscillator level",
+            )
+            messages.append(
+                _verify_numeric_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="osc_level_v",
+                    requested_value=osc_level_v,
+                    expected_value=expected_osc_level_v,
+                    actual_value=actual_osc_level_v,
+                    requested_text=f"{_trim_zeros(osc_level_v)} V",
+                    actual_text=f"{_trim_zeros(actual_osc_level_v)} V",
+                    absolute_tolerance=1e-9,
+                )
+            )
+
+        if display_a is not None and display_b is not None:
+            if snapshot_for_display_checks is None:
+                raise ConfigurationVerificationError(
+                    "display_a/display_b were changed but no display readback was captured"
+                )
+
+            actual_display_a_name = _DISPLAY_A_CODE_TO_NAME.get(
+                snapshot_for_display_checks.display_a.function_code,
+                f"unknown ({snapshot_for_display_checks.display_a.function_code})",
+            )
+            actual_display_b_name = _DISPLAY_B_CODE_TO_NAME.get(
+                snapshot_for_display_checks.display_b.function_code,
+                f"unknown ({snapshot_for_display_checks.display_b.function_code})",
+            )
+
+            messages.append(
+                _verify_display_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="display_a",
+                    requested_value=display_a,
+                    actual_code=snapshot_for_display_checks.display_a.function_code,
+                    allowed_codes=_DISPLAY_A_REQUEST_TO_CODES[display_a],
+                    actual_text=actual_display_a_name,
+                )
+            )
+            messages.append(
+                _verify_display_setting(
+                    instrument_name=self.instrument_name,
+                    parameter_name="display_b",
+                    requested_value=display_b,
+                    actual_code=snapshot_for_display_checks.display_b.function_code,
+                    allowed_codes=_DISPLAY_B_REQUEST_TO_CODES[display_b],
+                    actual_text=actual_display_b_name,
+                )
+            )
+
+        if effective_circuit_mode is not None:
+            if snapshot_for_display_checks is None:
+                raise ConfigurationVerificationError(
+                    "circuit_mode was changed but no display readback was captured"
+                )
+
+            actual_circuit_mode = _DISPLAY_A_CODE_TO_CIRCUIT_MODE.get(
+                snapshot_for_display_checks.display_a.function_code
+            )
+            if actual_circuit_mode is None:
+                messages.append(
+                    format_configure_unverified(
+                        self.instrument_name,
+                        "circuit_mode",
+                        effective_circuit_mode,
+                    )
+                )
+            elif effective_circuit_mode == "auto":
+                messages.append(
+                    format_configure_adjusted(
+                        self.instrument_name,
+                        "circuit_mode",
+                        "auto",
+                        actual_circuit_mode,
+                    )
+                )
+            elif actual_circuit_mode != effective_circuit_mode:
+                raise ConfigurationVerificationError(
+                    "circuit_mode verification failed: "
+                    f"requested {effective_circuit_mode!r}, instrument reports {actual_circuit_mode!r}"
+                )
+            else:
+                messages.append(
+                    format_configure_success(
+                        self.instrument_name,
+                        "circuit_mode",
+                        actual_circuit_mode,
+                    )
+                )
+
+        return messages
+
     def close(self) -> None:
         """
         Close the VISA connection to the instrument.
@@ -793,21 +950,78 @@ class HP4192A(Instrument):
 
         self._device.close()
 
+    def set_trace(
+        self,
+        *,
+        enabled: bool = True,
+        print_live: bool = False,
+    ) -> None:
+        """
+        Enable or disable raw HP 4192A I/O tracing.
+        """
+
+        self._trace_enabled = enabled
+        self._trace_print_live = print_live if enabled else False
+
+    def clear_trace_log(self) -> None:
+        """
+        Clear the accumulated in-memory trace log.
+        """
+
+        self._trace_entries.clear()
+        self._trace_started_at = time.monotonic()
+
+    def get_trace_log(self) -> list[str]:
+        """
+        Return the current in-memory trace log.
+        """
+
+        return list(self._trace_entries)
+
+    def format_trace_log(self) -> str:
+        """
+        Return the current in-memory trace log as plain text.
+        """
+
+        if not self._trace_entries:
+            return "(trace log is empty)"
+        return "\n".join(self._trace_entries)
+
     def _read_spot_frequency_hz(self) -> float:
         return self._retry_readback(
             lambda: _parse_spot_frequency_hz(self._read_output_snapshot("FRR")),
             parameter_name="spot frequency",
         )
 
-    def _retry_readback(self, reader, *, parameter_name: str):
+    def _trace(self, category: str, message: str) -> None:
+        if not self._trace_enabled:
+            return
+
+        elapsed_s = time.monotonic() - self._trace_started_at
+        entry = f"[{elapsed_s:8.3f} s] {category:<8} {message}"
+        self._trace_entries.append(entry)
+
+        if self._trace_print_live:
+            print(entry)
+
+    def _retry_readback(self, reader: Callable[[], float], *, parameter_name: str) -> float:
         last_exception: Exception | None = None
 
         for attempt_index in range(_HP4192A_READBACK_ATTEMPTS):
+            attempt_number = attempt_index + 1
+            self._trace(
+                "READTRY",
+                f"{parameter_name}: attempt {attempt_number}/{_HP4192A_READBACK_ATTEMPTS}",
+            )
             try:
                 return reader()
             except Exception as exc:
                 last_exception = exc
-                if attempt_index + 1 >= _HP4192A_READBACK_ATTEMPTS:
+                self._trace(
+                    "READTRY",
+                    f"{parameter_name}: attempt {attempt_number} failed ({_classify_hp4192a_exception(exc)}): {exc}",
+                )
+                if attempt_number >= _HP4192A_READBACK_ATTEMPTS:
                     break
                 time.sleep(_HP4192A_READBACK_RETRY_DELAY_S)
 
@@ -848,20 +1062,24 @@ class HP4192A(Instrument):
           setup, device clear reset the frequency to 100 kHz.
         """
 
+        self._trace("SNAPSHOT", f"start recall={recall_code or '-'}")
         self._write_command("F1")
         if recall_code is not None:
             self._write_command(recall_code)
         self._write_command("EX", settle_s=_HP4192A_TRIGGER_SETTLE_S)
 
         raw = self._device.read().strip()
+        self._trace("READ", raw or "<empty>")
         if not raw:
             raise RuntimeError("instrument returned no data")
 
         return _parse_output_snapshot(raw)
 
     def _write_command(self, command: str, *, settle_s: float = _HP4192A_COMMAND_DELAY_S) -> None:
+        self._trace("WRITE", command)
         self._device.write(command)
         if settle_s > 0.0:
+            self._trace("SLEEP", f"{settle_s:.3f} s after {command}")
             time.sleep(settle_s)
 
 
@@ -1026,6 +1244,25 @@ def _normalize_osc_level_v(value: float) -> float:
     return float(_format_decimal_with_step(value, step="0.005", places="0.001"))
 
 
+def _classify_hp4192a_exception(exc: Exception) -> str:
+    if isinstance(exc, ConfigurationVerificationError):
+        return "state mismatch"
+
+    message = str(exc)
+    communication_markers = (
+        "returned no data",
+        "expected DISPLAY C unit code",
+        "could not be parsed",
+        "too short",
+        "unexpected output",
+        "readback failed after",
+    )
+    if any(marker in message for marker in communication_markers):
+        return "communication/readback"
+
+    return "other"
+
+
 def _verify_numeric_setting(
     *,
     instrument_name: str,
@@ -1036,7 +1273,7 @@ def _verify_numeric_setting(
     requested_text: str,
     actual_text: str,
     absolute_tolerance: float,
-) -> None:
+) -> str:
     if expected_value is None:
         raise ConfigurationVerificationError(
             f"{parameter_name} verification was requested without an expected value"
@@ -1049,16 +1286,13 @@ def _verify_numeric_setting(
         )
 
     if math.isclose(actual_value, requested_value, rel_tol=0.0, abs_tol=absolute_tolerance):
-        print(format_configure_success(instrument_name, parameter_name, actual_text))
-        return
+        return format_configure_success(instrument_name, parameter_name, actual_text)
 
-    print(
-        format_configure_adjusted(
-            instrument_name,
-            parameter_name,
-            requested_text,
-            actual_text,
-        )
+    return format_configure_adjusted(
+        instrument_name,
+        parameter_name,
+        requested_text,
+        actual_text,
     )
 
 
@@ -1070,7 +1304,7 @@ def _verify_display_setting(
     actual_code: str,
     allowed_codes: set[str],
     actual_text: str,
-) -> None:
+) -> str:
     if actual_code not in allowed_codes:
         allowed_text = ", ".join(sorted(allowed_codes))
         raise ConfigurationVerificationError(
@@ -1079,7 +1313,7 @@ def _verify_display_setting(
             f"(expected one of {allowed_text})"
         )
 
-    print(format_configure_success(instrument_name, parameter_name, actual_text))
+    return format_configure_success(instrument_name, parameter_name, actual_text)
 
 
 def _try_parse_float(value_text: str) -> float | None:
