@@ -5,11 +5,18 @@ Purpose
 -------
 This script is for bench validation, not automated testing.
 
-It checks the measurement-read path step by step:
+It checks the current `measure()` implementation step by step across all
+display modes that are currently supported in the driver.
 
+Current coverage
+----------------
 1. open-circuit behavior when no actual numeric reading exists
-2. one known DUT in a direct measurement mode
-3. the same DUT in an impedance/phase view
+2. impedance and phase in degrees
+3. impedance and phase in radians
+4. inductance and quality factor in series mode
+5. inductance and dissipation factor in parallel mode
+6. capacitance and quality factor in series mode
+7. capacitance and dissipation factor in parallel mode
 
 This is the script to use when you want to answer questions like:
 
@@ -45,12 +52,17 @@ RESOURCE = "TCPIP0::192.168.1.244::gpib0,5::INSTR"
 TIMEOUT_MS = 5000
 
 # Known DUT settings for the measurement checks.
+#
+# Choose one DUT that gives stable readings in the display modes you want to
+# inspect. The same DUT is reused for every known-DUT step below.
 KNOWN_DUT_DESCRIPTION = "1 uF capacitor"
 KNOWN_DUT_FREQUENCY_HZ = 1_000.0
 KNOWN_DUT_OSC_LEVEL_V = 0.1
-KNOWN_DUT_CIRCUIT_MODE = "parallel"
-KNOWN_DUT_DISPLAY_A = "capacitance"
-KNOWN_DUT_DISPLAY_B = "dissipation_factor"
+
+KNOWN_DUT_COMMON_CONFIG = {
+    "frequency_hz": KNOWN_DUT_FREQUENCY_HZ,
+    "osc_level_v": KNOWN_DUT_OSC_LEVEL_V,
+}
 
 
 def wait_for_user(message: str) -> None:
@@ -97,8 +109,15 @@ def run_step(
     meter.configure(**configure_kwargs)
 
     wait_for_user(
-        "The instrument is configured. Look at the front panel now before measure() runs."
+        "The instrument is configured. Look at the front panel now before ping() and measure() run."
     )
+
+    print()
+    print("ping() after configure()")
+    print("------------------------")
+    meter.ping()
+
+    wait_for_user("Compare the ping() report with the front panel before measure() runs.")
 
     print()
     print("measure() result")
@@ -127,6 +146,7 @@ def main() -> None:
             "title": "Open input: measure() should fail because there is no actual reading",
             "preparation": "Leave the measurement input open with no DUT connected.",
             "configure_kwargs": {
+                **KNOWN_DUT_COMMON_CONFIG,
                 "display_a": "impedance",
                 "display_b": "phase_deg",
             },
@@ -137,14 +157,12 @@ def main() -> None:
             "expect_measure_error": True,
         },
         {
-            "title": "Known DUT: direct measurement in the chosen working mode",
+            "title": "Known DUT: impedance and phase in degrees",
             "preparation": f"Connect the known DUT: {KNOWN_DUT_DESCRIPTION}.",
             "configure_kwargs": {
-                "frequency_hz": KNOWN_DUT_FREQUENCY_HZ,
-                "osc_level_v": KNOWN_DUT_OSC_LEVEL_V,
-                "circuit_mode": KNOWN_DUT_CIRCUIT_MODE,
-                "display_a": KNOWN_DUT_DISPLAY_A,
-                "display_b": KNOWN_DUT_DISPLAY_B,
+                **KNOWN_DUT_COMMON_CONFIG,
+                "display_a": "impedance",
+                "display_b": "phase_deg",
             },
             "checks": [
                 "DISPLAY A and DISPLAY B should match the configured measurement mode.",
@@ -154,18 +172,81 @@ def main() -> None:
             "expect_measure_error": False,
         },
         {
-            "title": "Known DUT: same DUT in impedance and phase view",
+            "title": "Known DUT: impedance and phase in radians",
             "preparation": f"Keep the same DUT connected: {KNOWN_DUT_DESCRIPTION}.",
             "configure_kwargs": {
-                "frequency_hz": KNOWN_DUT_FREQUENCY_HZ,
-                "osc_level_v": KNOWN_DUT_OSC_LEVEL_V,
+                **KNOWN_DUT_COMMON_CONFIG,
                 "display_a": "impedance",
-                "display_b": "phase_deg",
+                "display_b": "phase_rad",
             },
             "checks": [
                 "DISPLAY A should show impedance.",
-                "DISPLAY B should show phase in degrees.",
-                "measure() should now return impedance/phase data for the same DUT.",
+                "DISPLAY B should show phase in radians.",
+                "measure() should now return impedance/radian-phase data for the same DUT.",
+            ],
+            "expect_measure_error": False,
+        },
+        {
+            "title": "Known DUT: inductance and quality factor in series mode",
+            "preparation": f"Keep the same DUT connected: {KNOWN_DUT_DESCRIPTION}.",
+            "configure_kwargs": {
+                **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "series",
+                "display_a": "inductance",
+                "display_b": "quality_factor",
+            },
+            "checks": [
+                "DISPLAY A should show inductance in series mode.",
+                "DISPLAY B should show quality factor.",
+                "measure() should return two numeric values for the current display pair.",
+            ],
+            "expect_measure_error": False,
+        },
+        {
+            "title": "Known DUT: inductance and dissipation factor in parallel mode",
+            "preparation": f"Keep the same DUT connected: {KNOWN_DUT_DESCRIPTION}.",
+            "configure_kwargs": {
+                **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "parallel",
+                "display_a": "inductance",
+                "display_b": "dissipation_factor",
+            },
+            "checks": [
+                "DISPLAY A should show inductance in parallel mode.",
+                "DISPLAY B should show dissipation factor.",
+                "measure() should return two numeric values for the current display pair.",
+            ],
+            "expect_measure_error": False,
+        },
+        {
+            "title": "Known DUT: capacitance and quality factor in series mode",
+            "preparation": f"Keep the same DUT connected: {KNOWN_DUT_DESCRIPTION}.",
+            "configure_kwargs": {
+                **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "series",
+                "display_a": "capacitance",
+                "display_b": "quality_factor",
+            },
+            "checks": [
+                "DISPLAY A should show capacitance in series mode.",
+                "DISPLAY B should show quality factor.",
+                "measure() should return two numeric values for the current display pair.",
+            ],
+            "expect_measure_error": False,
+        },
+        {
+            "title": "Known DUT: capacitance and dissipation factor in parallel mode",
+            "preparation": f"Keep the same DUT connected: {KNOWN_DUT_DESCRIPTION}.",
+            "configure_kwargs": {
+                **KNOWN_DUT_COMMON_CONFIG,
+                "circuit_mode": "parallel",
+                "display_a": "capacitance",
+                "display_b": "dissipation_factor",
+            },
+            "checks": [
+                "DISPLAY A should show capacitance in parallel mode.",
+                "DISPLAY B should show dissipation factor.",
+                "measure() should return two numeric values for the current display pair.",
             ],
             "expect_measure_error": False,
         },

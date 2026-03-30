@@ -46,7 +46,8 @@ Useful files for the current HP 4192A work:
 - [source/instruments/hp_4192a_commands.md](/C:/Users/dinod/Desktop/EE%20python/EE-python/source/instruments/hp_4192a_commands.md)
 - [examples/hp_4192a/configure_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/configure_test.py)
 - [examples/hp_4192a/measurement_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/measurement_test.py)
-- [examples/hp_4192a/read_measurement.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/read_measurement.py)
+- [examples/hp_4192a/get_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/get_test.py)
+- [examples/hp_4192a/self_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/self_test.py)
 - [scripts/scan_keysight_gateway_gpib.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/scan_keysight_gateway_gpib.py)
 
 ## Reference Manual
