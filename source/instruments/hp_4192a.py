@@ -6,6 +6,7 @@ Current scope:
   frequency, spot bias, and oscillator level
 - configure(): set spot frequency, spot bias, oscillator level, circuit mode,
   and a small supported set of display-function pairs
+- measure(): return one current A/B/C measurement snapshot
 """
 
 from __future__ import annotations
@@ -134,6 +135,87 @@ class _OutputSnapshot:
     display_b: _DisplayField
     display_c: _DisplayCField
     raw: str
+
+
+@dataclass(slots=True)
+class HP4192AMeasurementField:
+    """
+    One measured display value returned by `measure()`.
+
+    Attributes
+    ----------
+    label:
+        Human-readable meaning of the display, for example `impedance` or
+        `phase (deg)`.
+    value:
+        Parsed numeric value when the returned text can be interpreted as a
+        real number. If parsing fails, this is `None` and `raw_value` still
+        contains the original text from the instrument.
+    raw_value:
+        Numeric text exactly as returned by the instrument for this display.
+    status_code:
+        First character of the DISPLAY A/B field from the HP 4192A output
+        string.
+    deviation_mode_code:
+        Deviation-mode code from the DISPLAY A/B field.
+    """
+
+    label: str
+    value: float | None
+    raw_value: str
+    status_code: str
+    deviation_mode_code: str
+
+
+@dataclass(slots=True)
+class HP4192ADisplayCMeasurement:
+    """
+    Current DISPLAY C value returned together with a measurement snapshot.
+
+    `measure()` does not recall a new DISPLAY C parameter. It reports whatever
+    the instrument is already set to show on DISPLAY C.
+    """
+
+    unit_code: str
+    value: float | None
+    raw_value: str
+
+
+@dataclass(slots=True)
+class HP4192AMeasurement:
+    """
+    One high-level HP 4192A measurement snapshot.
+
+    This is the return type of `HP4192A.measure()`.
+    """
+
+    display_a: HP4192AMeasurementField
+    display_b: HP4192AMeasurementField
+    display_c: HP4192ADisplayCMeasurement
+    circuit_mode: str | None
+    raw: str
+
+    def to_text(self) -> str:
+        """
+        Return a readable text view of the measured values.
+        """
+
+        lines = ["HP 4192A Measurement", ""]
+        lines.append(
+            f"A: {self.display_a.label} = {_format_measurement_value(self.display_a.value, self.display_a.raw_value)}"
+        )
+        lines.append(
+            f"B: {self.display_b.label} = {_format_measurement_value(self.display_b.value, self.display_b.raw_value)}"
+        )
+        if self.circuit_mode is not None:
+            lines.append(f"circuit mode: {self.circuit_mode}")
+        lines.append(
+            f"C: {self.display_c.unit_code}{self.display_c.raw_value}"
+        )
+        return "\n".join(lines)
+
+    def __str__(self) -> str:
+        return self.to_text()
 
 
 class HP4192A(Instrument):
@@ -541,6 +623,74 @@ class HP4192A(Instrument):
             if latest_display_c_recall_code is not None:
                 self._device.write(latest_display_c_recall_code)
 
+    def measure(self) -> HP4192AMeasurement:
+        """
+        Trigger one HP 4192A measurement and return the current display data.
+
+        Return value
+        ------------
+        The returned `HP4192AMeasurement` contains:
+
+        - DISPLAY A label and value
+        - DISPLAY B label and value
+        - current DISPLAY C raw/unit information
+        - inferred circuit mode when DISPLAY A exposes it
+        - the raw instrument output string for debugging
+
+        Manual-backed measurement path
+        ------------------------------
+        This method uses the current display setup and sends:
+
+        - ``F1`` to request DISPLAY A/B/C output
+        - ``EX`` to execute one measurement/output cycle
+        - one VISA read of the returned data string
+
+        Important notes
+        ---------------
+        - `measure()` does not send a recall code such as `FRR` or `BIR`.
+        - Because of that, it does not intentionally change which parameter is
+          shown on DISPLAY C.
+        - The returned A/B meanings depend on the current display setup, for
+          example impedance/phase or inductance/Q.
+        """
+
+        snapshot = self._read_output_snapshot()
+
+        display_a_label = _DISPLAY_A_CODE_TO_NAME.get(
+            snapshot.display_a.function_code,
+            f"unknown ({snapshot.display_a.function_code})",
+        )
+        display_b_label = _DISPLAY_B_CODE_TO_NAME.get(
+            snapshot.display_b.function_code,
+            f"unknown ({snapshot.display_b.function_code})",
+        )
+
+        return HP4192AMeasurement(
+            display_a=HP4192AMeasurementField(
+                label=display_a_label,
+                value=_try_parse_float(snapshot.display_a.value_text),
+                raw_value=snapshot.display_a.value_text,
+                status_code=snapshot.display_a.status_code,
+                deviation_mode_code=snapshot.display_a.deviation_mode_code,
+            ),
+            display_b=HP4192AMeasurementField(
+                label=display_b_label,
+                value=_try_parse_float(snapshot.display_b.value_text),
+                raw_value=snapshot.display_b.value_text,
+                status_code=snapshot.display_b.status_code,
+                deviation_mode_code=snapshot.display_b.deviation_mode_code,
+            ),
+            display_c=HP4192ADisplayCMeasurement(
+                unit_code=snapshot.display_c.unit_code,
+                value=_try_parse_float(snapshot.display_c.value_text),
+                raw_value=snapshot.display_c.value_text,
+            ),
+            circuit_mode=_DISPLAY_A_CODE_TO_CIRCUIT_MODE.get(
+                snapshot.display_a.function_code
+            ),
+            raw=snapshot.raw,
+        )
+
     def close(self) -> None:
         """
         Close the VISA connection to the instrument.
@@ -562,14 +712,14 @@ class HP4192A(Instrument):
             parameter_name=parameter_name,
         )
 
-    def _read_output_snapshot(self, recall_code: str) -> _OutputSnapshot:
+    def _read_output_snapshot(self, recall_code: str | None = None) -> _OutputSnapshot:
         """
         Read one DISPLAY A/B/C output snapshot.
 
         Manual basis:
         - Table 3-23: ``F1`` selects DISPLAY A/B/C output.
-        - Table 3-23: recall codes such as ``FRR``, ``BIR``, and ``OLR`` choose
-          which parameter is shown on DISPLAY C.
+        - Table 3-23: optional recall codes such as ``FRR``, ``BIR``, and
+          ``OLR`` choose which parameter is shown on DISPLAY C.
         - Table 3-23: ``EX`` triggers the output.
         - Figure 3-36 and table 3-25 define the returned data format.
 
@@ -579,7 +729,8 @@ class HP4192A(Instrument):
         """
 
         self._device.write("F1")
-        self._device.write(recall_code)
+        if recall_code is not None:
+            self._device.write(recall_code)
         self._device.write("EX")
 
         raw = self._device.read().strip()
@@ -786,6 +937,19 @@ def _verify_display_setting(
         )
 
     print(format_configure_success(instrument_name, parameter_name, actual_text))
+
+
+def _try_parse_float(value_text: str) -> float | None:
+    try:
+        return float(value_text)
+    except ValueError:
+        return None
+
+
+def _format_measurement_value(value: float | None, raw_value: str) -> str:
+    if value is None:
+        return raw_value
+    return f"{value:g}"
 
 
 def _format_spot_frequency_set_command(frequency_hz: float) -> str:

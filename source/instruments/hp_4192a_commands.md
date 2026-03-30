@@ -114,6 +114,16 @@ The current high-level Python API supports these keywords:
 - `display_a`
 - `display_b`
 
+### `measure()`
+
+The current driver also supports:
+
+- `measure()`
+
+This is the higher-level data-read function for the 4192A in this repo.
+It returns the current DISPLAY A/B measurement values together with the current
+DISPLAY C field and the raw returned string.
+
 ### `configure()` Self-Check
 
 The current driver does not treat `configure()` as "send and hope."
@@ -158,6 +168,33 @@ The current `ping()` reads and reports:
 
 Everything shown by `ping()` is read from the instrument. It is not reported
 from cached Python state.
+
+### `measure()` Readback
+
+`measure()` is intentionally different from `ping()`.
+
+- `ping()` is for a readable instrument-state report
+- `measure()` is for retrieving the current measurement data
+
+`measure()` uses the current display setup and does not recall a new DISPLAY C
+parameter before reading.
+
+Basic path:
+
+```text
+F1
+EX
+READ
+```
+
+Meaning:
+
+- `F1` requests DISPLAY A/B/C output
+- `EX` triggers one output/measurement cycle
+- the driver reads the returned A/B/C data string
+
+Because `measure()` does not send `FRR`, `BIR`, or `OLR`, it does not
+intentionally change which parameter DISPLAY C is following.
 
 ## How `ping()` Reads The Instrument
 
@@ -530,6 +567,26 @@ READ
 
 If DISPLAY C comes back as `K10`, the spot frequency is `10 kHz`.
 
+### Read One Current Measurement Snapshot
+
+Using the current display setup:
+
+```text
+F1
+EX
+READ
+```
+
+Python example:
+
+```python
+reading = meter.measure()
+
+print(reading.display_a.label, reading.display_a.value)
+print(reading.display_b.label, reading.display_b.value)
+print(reading.display_c.unit_code, reading.display_c.raw_value)
+```
+
 ### Read Spot Bias
 
 ```text
@@ -629,6 +686,11 @@ Right now the active driver covers:
   - `circuit_mode`
   - `display_a`
   - `display_b`
+- `measure()`
+  - current DISPLAY A value
+  - current DISPLAY B value
+  - current DISPLAY C field
+  - raw A/B/C output string
 
 More functionality should be added the same way:
 

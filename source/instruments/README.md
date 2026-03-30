@@ -33,6 +33,14 @@ Each instrument should at least provide:
 
 Other instrument-specific functions should be added only when they are actually needed.
 
+When an instrument has `measure()`, it should be the higher-level data-read
+entry point:
+
+- return structured measurement data
+- avoid printing by default
+- use a readable return type instead of a raw string when possible
+- document exactly what data fields are returned
+
 `configure()` should not only send commands. When the instrument offers a safe
 readback path, it should also:
 
@@ -57,3 +65,5 @@ Current implementation scope is intentionally small:
   - `circuit_mode`
   - `display_a`
   - `display_b`
+- `measure()` returns one current DISPLAY A/B/C measurement snapshot using the
+  instrument's present display setup
