@@ -1,22 +1,13 @@
 # HP 4192A Examples
 
-This folder contains runnable HP 4192A example scripts.
+This folder is the user-facing example layer for the HP 4192A.
 
-- `configure_test.py`: step through all currently supported HP 4192A
-  `configure()` features; readable settings are checked with `ping()`, and
-  front-panel-only settings are called out for manual inspection
-- `measurement_test.py`: step through all currently supported `measure()`
-  display modes and compare returned data with the front panel and DUT setup
-- `get_test.py`: select one supported `get()` parameter and print its current
-  instrument value
-- `self_test.py`: automatic short self-test for `configure()`, `get()`,
-  `ping()`, front-panel-only configure coverage, and an optional `measure()`
-  block when a known DUT is connected
-- `self_test_benchmark.py`: run the current `self_test` repeatedly and write
-  one Excel workbook with pass/fail statistics and failure traces
+Contents:
 
-Run examples from the repo root, for example:
+- `hp_4192a_user_guide.ipynb`: sequential notebook showing how to open the
+  instrument, inspect state, configure it, read values with `get()`, and take
+  measurements with `measure()`
 
-```powershell
-python examples/hp_4192a/configure_test.py
-```
+Use this folder when you want to learn or demonstrate the API.
+
+Use [scripts/hp_4192a_test_scripts](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/hp_4192a_test_scripts) when you want to run bench diagnostics, configure checks, measurement checks, or automatic self-tests.

@@ -6,7 +6,7 @@ Clean instrument-control code for electrical measurements.
 
 - [source](/C:/Users/dinod/Desktop/EE%20python/EE-python/source) contains the reusable Python code.
 - [examples](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples) contains runnable usage examples grouped by instrument or use case.
-- [scripts](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts) contains useful standalone bench utilities.
+- [scripts](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts) contains useful standalone bench utilities and instrument test scripts.
 - [source/instruments](/C:/Users/dinod/Desktop/EE%20python/EE-python/source/instruments) contains the active instrument APIs.
 - [archive](/C:/Users/dinod/Desktop/EE%20python/EE-python/archive) contains older material moved aside so the active repo stays readable.
 
@@ -44,10 +44,11 @@ Useful files for the current HP 4192A work:
 
 - [source/instruments/hp_4192a.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/source/instruments/hp_4192a.py)
 - [source/instruments/hp_4192a_commands.md](/C:/Users/dinod/Desktop/EE%20python/EE-python/source/instruments/hp_4192a_commands.md)
-- [examples/hp_4192a/configure_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/configure_test.py)
-- [examples/hp_4192a/measurement_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/measurement_test.py)
-- [examples/hp_4192a/get_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/get_test.py)
-- [examples/hp_4192a/self_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/self_test.py)
+- [examples/hp_4192a/hp_4192a_user_guide.ipynb](/C:/Users/dinod/Desktop/EE%20python/EE-python/examples/hp_4192a/hp_4192a_user_guide.ipynb)
+- [scripts/hp_4192a_test_scripts/configure_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/hp_4192a_test_scripts/configure_test.py)
+- [scripts/hp_4192a_test_scripts/measurement_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/hp_4192a_test_scripts/measurement_test.py)
+- [scripts/hp_4192a_test_scripts/get_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/hp_4192a_test_scripts/get_test.py)
+- [scripts/hp_4192a_test_scripts/self_test.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/hp_4192a_test_scripts/self_test.py)
 - [scripts/scan_keysight_gateway_gpib.py](/C:/Users/dinod/Desktop/EE%20python/EE-python/scripts/scan_keysight_gateway_gpib.py)
 
 ## Reference Manual

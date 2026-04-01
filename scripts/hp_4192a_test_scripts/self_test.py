@@ -26,7 +26,7 @@ How to use
    connect the known DUT before starting the script.
 3. Run:
 
-   python examples/hp_4192a/self_test.py
+   python scripts/hp_4192a_test_scripts/self_test.py
 
 The script prints progress as it goes, then prints a final pass/fail summary.
 When tracing is enabled, failures also print the raw HP 4192A I/O for that

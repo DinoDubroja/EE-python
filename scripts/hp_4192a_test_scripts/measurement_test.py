@@ -30,7 +30,7 @@ How to use
 2. Edit the known-DUT settings below so they match what you are testing.
 3. Run:
 
-   python examples/hp_4192a/measurement_test.py
+   python scripts/hp_4192a_test_scripts/measurement_test.py
 
 4. Follow the prompts.
 """

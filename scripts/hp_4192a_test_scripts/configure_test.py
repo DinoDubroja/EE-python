@@ -35,7 +35,7 @@ How to use
 1. Edit RESOURCE if needed.
 2. Run:
 
-   python examples/hp_4192a/configure_test.py
+   python scripts/hp_4192a_test_scripts/configure_test.py
 
 3. Follow the prompts.
 """

@@ -19,12 +19,12 @@ How to use
 ----------
 Run from the repo root:
 
-    python examples/hp_4192a/self_test_benchmark.py
+   python scripts/hp_4192a_test_scripts/self_test_benchmark.py
 
 Optional:
 
-    python examples/hp_4192a/self_test_benchmark.py --runs 10
-    python examples/hp_4192a/self_test_benchmark.py --measurement
+   python scripts/hp_4192a_test_scripts/self_test_benchmark.py --runs 10
+   python scripts/hp_4192a_test_scripts/self_test_benchmark.py --measurement
 """
 
 from __future__ import annotations

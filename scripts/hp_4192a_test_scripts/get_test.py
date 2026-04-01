@@ -11,7 +11,7 @@ How to use
 1. Edit `RESOURCE` if needed.
 2. Run:
 
-   python examples/hp_4192a/get_test.py
+   python scripts/hp_4192a_test_scripts/get_test.py
 
 3. Select one parameter by number or by name.
 4. The script reads that value from the instrument and exits.
