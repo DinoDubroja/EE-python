@@ -12,6 +12,8 @@ Core block:
 - `configure()` across the currently supported settings
 - `get()` for exact single-parameter readback
 - `ping(show=False)` for readable state reporting
+- front-panel-only configure coverage for settings that do not yet have a
+  proven safe recall path
 - trace output for the failing step when a step fails
 
 Optional measurement block:
@@ -61,6 +63,22 @@ RUN_MEASUREMENT_BLOCK = False
 KNOWN_DUT_DESCRIPTION = "1 uF capacitor"
 KNOWN_DUT_FREQUENCY_HZ = 1_000.0
 KNOWN_DUT_OSC_LEVEL_V = 0.1
+
+MODE_TEST_BASE_CONFIG = {
+    "frequency_hz": 1_000.0,
+    "osc_level_v": 0.100,
+    "circuit_mode": "series",
+    "display_a": "impedance",
+    "display_b": "phase_deg",
+}
+
+RANGE_TEST_BASE_CONFIG = {
+    "frequency_hz": 1_000.0,
+    "osc_level_v": 0.010,
+    "circuit_mode": "series",
+    "display_a": "impedance",
+    "display_b": "phase_deg",
+}
 
 
 CORE_STEPS: list[dict[str, object]] = [
@@ -164,6 +182,32 @@ CORE_STEPS: list[dict[str, object]] = [
         },
     },
     {
+        "title": "Bias output on with a +1.00 V setpoint",
+        "configure_kwargs": {
+            "bias_voltage_v": 1.00,
+            "bias_enabled": True,
+        },
+        "get_checks": {
+            "bias_voltage_v": 1.00,
+        },
+        "ping_checks": {
+            "spot bias": "1 V",
+        },
+    },
+    {
+        "title": "Bias output off with a +1.00 V setpoint",
+        "configure_kwargs": {
+            "bias_voltage_v": 1.00,
+            "bias_enabled": False,
+        },
+        "get_checks": {
+            "bias_voltage_v": 0.0,
+        },
+        "ping_checks": {
+            "spot bias": "0 V",
+        },
+    },
+    {
         "title": "Oscillator level at 0.010 V",
         "configure_kwargs": {
             "osc_level_v": 0.010,
@@ -171,9 +215,7 @@ CORE_STEPS: list[dict[str, object]] = [
         "get_checks": {
             "osc_level_v": 0.010,
         },
-        "ping_checks": {
-            "oscillator level": "0.01 V",
-        },
+        "ping_checks": {},
     },
     {
         "title": "Oscillator level at 0.100 V",
@@ -183,9 +225,7 @@ CORE_STEPS: list[dict[str, object]] = [
         "get_checks": {
             "osc_level_v": 0.100,
         },
-        "ping_checks": {
-            "oscillator level": "0.1 V",
-        },
+        "ping_checks": {},
     },
     {
         "title": "Oscillator level at 0.105 V",
@@ -197,6 +237,264 @@ CORE_STEPS: list[dict[str, object]] = [
         },
         "ping_checks": {
             "oscillator level": "0.105 V",
+        },
+    },
+    {
+        "title": "Trigger mode internal",
+        "configure_kwargs": {
+            "trigger_mode": "internal",
+        },
+        "get_checks": {},
+        "ping_checks": {},
+    },
+    {
+        "title": "Trigger mode external",
+        "configure_kwargs": {
+            "trigger_mode": "external",
+        },
+        "get_checks": {},
+        "ping_checks": {},
+        "cleanup_kwargs": {
+            "trigger_mode": "hold",
+        },
+    },
+    {
+        "title": "Trigger mode hold",
+        "configure_kwargs": {
+            "trigger_mode": "hold",
+        },
+        "get_checks": {},
+        "ping_checks": {},
+    },
+    {
+        "title": "Measurement mode normal",
+        "configure_kwargs": {
+            **MODE_TEST_BASE_CONFIG,
+            "measurement_mode": "normal",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.100,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.1 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "Measurement mode average",
+        "configure_kwargs": {
+            **MODE_TEST_BASE_CONFIG,
+            "measurement_mode": "average",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.100,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.1 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "Measurement mode high_speed",
+        "configure_kwargs": {
+            **MODE_TEST_BASE_CONFIG,
+            "measurement_mode": "high_speed",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.100,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.1 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range auto",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "auto",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 1 ohm / 10 S",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "1_ohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 10 ohm / 1 S",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "10_ohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 100 ohm / 100 mS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "100_ohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 1 kohm / 10 mS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "1_kohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 10 kohm / 1 mS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "10_kohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 100 kohm / 100 uS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "100_kohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
+        },
+    },
+    {
+        "title": "ZY range 1 Mohm / 10 uS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "1_mohm",
+        },
+        "get_checks": {
+            "frequency_hz": 1_000.0,
+            "osc_level_v": 0.010,
+            "display_a": "impedance",
+            "display_b": "phase_deg",
+            "circuit_mode": "series",
+        },
+        "ping_checks": {
+            "spot frequency": "1 kHz",
+            "oscillator level": "0.01 V",
+            "display A": "impedance",
+            "display B": "phase (deg)",
+            "circuit mode": "series",
         },
     },
     {
@@ -381,6 +679,10 @@ def extract_parameter_name(exc: Exception) -> str:
         "frequency_hz",
         "bias_voltage_v",
         "osc_level_v",
+        "bias_enabled",
+        "trigger_mode",
+        "measurement_mode",
+        "zy_range",
         "display_a",
         "display_b",
         "circuit_mode",
@@ -441,6 +743,13 @@ def run_core_step(meter: HP4192A, step: dict[str, object], index: int, total: in
         for key, expected_value in ping_checks.items():
             verify_ping_value(state_rows, key, expected_value)
             print(f"  {key}: {state_rows[key]}")
+
+    cleanup_kwargs = step.get("cleanup_kwargs")
+    if cleanup_kwargs:
+        print("cleanup configure() call:")
+        for key, value in cleanup_kwargs.items():
+            print(f"  {key}={value!r}")
+        meter.configure(**cleanup_kwargs)
 
     print("Result: PASS")
 

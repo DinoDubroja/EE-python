@@ -110,6 +110,10 @@ The current high-level Python API supports these keywords:
 - `frequency_hz`
 - `bias_voltage_v`
 - `osc_level_v`
+- `bias_enabled`
+- `trigger_mode`
+- `measurement_mode`
+- `zy_range`
 - `circuit_mode`
 - `display_a`
 - `display_b`
@@ -130,6 +134,16 @@ Currently supported parameter names:
 - `display_a`
 - `display_b`
 - `circuit_mode`
+
+Not yet supported in `get()`:
+
+- `bias_enabled`
+- `trigger_mode`
+- `measurement_mode`
+- `zy_range`
+
+These are intentionally omitted until the driver has a proven safe recall path
+for them from the instrument.
 
 Examples:
 
@@ -207,6 +221,16 @@ The current `ping()` reads and reports:
 - spot frequency
 - spot bias
 - oscillator level
+
+The current `ping()` does not report:
+
+- `bias_enabled`
+- `trigger_mode`
+- `measurement_mode`
+- `zy_range`
+
+Those are not omitted by accident. The current driver simply does not have a
+manual-backed safe recall path for them yet.
 
 Everything shown by `ping()` is read from the instrument. It is not reported
 from cached Python state.
@@ -529,6 +553,203 @@ instrument value. If the requested value falls between supported instrument
 steps, the driver prints both the requested and actual values instead of
 treating that as an error.
 
+## Bias Output Enable
+
+### High-Level Keyword
+
+```python
+meter.configure(bias_enabled=True)
+meter.configure(bias_enabled=False)
+```
+
+This is separate from `bias_voltage_v`.
+
+Important:
+
+- `bias_voltage_v=0` means the bias setpoint is `0 V`
+- `bias_enabled=False` means the internal bias output is turned off
+- these are not the same state on the real instrument
+
+### Raw Control Codes
+
+Bias ON/OFF uses table `3-23` codes:
+
+- `I1` -> bias on
+- `I0` -> bias off
+
+The numeric bias setpoint still uses table `3-24`:
+
+- `BI...EN` -> set spot bias value
+
+### Practical Driver Behavior
+
+Examples:
+
+```python
+meter.configure(bias_voltage_v=1.0, bias_enabled=True)
+meter.configure(bias_voltage_v=1.0, bias_enabled=False)
+```
+
+The current driver sends the value-setting code first and the ON/OFF code
+afterward. That makes it possible to keep a stored bias value while turning the
+actual bias output off.
+
+On the current bench setup, when bias output is off, the present readback path
+reports the actual output as `0 V`.
+
+### Readback Limitation
+
+The current driver does not yet have a proven safe recall code for the bias
+ON/OFF state itself.
+
+Because of that:
+
+- `get("bias_enabled")` is not implemented
+- `ping()` does not report `bias_enabled`
+- `configure()` prints `readback unavailable` for `bias_enabled`
+
+Use `configure_test.py` to verify this on the front panel by checking the BIAS
+ON indicator.
+
+## Trigger Mode
+
+### High-Level Keyword
+
+```python
+meter.configure(trigger_mode="hold")
+```
+
+Accepted values:
+
+- `internal`
+- `external`
+- `hold`
+
+### Raw Control Codes
+
+Trigger mode uses table `3-23` codes:
+
+- `T1` -> internal
+- `T2` -> external
+- `T3` -> hold/manual
+
+The same table also says:
+
+- `EX` is the execute / trigger code
+
+### Important Practical Rule
+
+The current readback path for `ping()`, `get()`, and `measure()` depends on
+`EX`.
+
+Because of that, the repo's manual `configure_test.py` intentionally skips
+`ping()` immediately after the `trigger_mode="external"` step and restores a
+safe trigger mode before continuing.
+
+### Readback Limitation
+
+The current driver does not yet have a proven safe recall path for trigger
+mode.
+
+Because of that:
+
+- `get("trigger_mode")` is not implemented
+- `ping()` does not report `trigger_mode`
+- `configure()` prints `readback unavailable` for `trigger_mode`
+
+## Measurement Mode
+
+### High-Level Keyword
+
+```python
+meter.configure(measurement_mode="average")
+```
+
+Accepted values:
+
+- `normal`
+- `average`
+- `high_speed`
+
+The high-level API uses one keyword because the manual behavior is effectively
+three mutually exclusive modes rather than two independent toggles.
+
+### Raw Control Codes
+
+From table `3-23`:
+
+- `V0` -> average off
+- `V1` -> average on
+- `H0` -> high speed off
+- `H1` -> high speed on
+
+The driver combines them as:
+
+- `normal` -> `V0`, `H0`
+- `average` -> `V1`, `H0`
+- `high_speed` -> `V0`, `H1`
+
+### Readback Limitation
+
+The current driver does not yet have a proven safe recall path for measurement
+mode.
+
+Because of that:
+
+- `get("measurement_mode")` is not implemented
+- `ping()` does not report `measurement_mode`
+- `configure()` prints `readback unavailable` for `measurement_mode`
+
+Use `configure_test.py` to verify this on the front panel by checking the
+AVERAGE and HIGH SPEED indicators.
+
+## ZY Range
+
+### High-Level Keyword
+
+```python
+meter.configure(zy_range="10_kohm")
+```
+
+Accepted values:
+
+- `auto`
+- `1_ohm`
+- `10_ohm`
+- `100_ohm`
+- `1_kohm`
+- `10_kohm`
+- `100_kohm`
+- `1_mohm`
+
+These names use the impedance side of the HP 4192A front-panel pairings.
+
+### Raw Control Codes
+
+From table `3-23`:
+
+- `R1` -> 1 ohm / 10 S
+- `R2` -> 10 ohm / 1 S
+- `R3` -> 100 ohm / 100 mS
+- `R4` -> 1 kohm / 10 mS
+- `R5` -> 10 kohm / 1 mS
+- `R6` -> 100 kohm / 100 uS
+- `R7` -> 1 Mohm / 10 uS
+- `R8` -> auto
+
+### Readback Limitation
+
+The current driver does not yet have a proven safe recall path for the current
+ZY range mode.
+
+Because of that:
+
+- `get("zy_range")` is not implemented
+- `ping()` does not report `zy_range`
+- `configure()` prints `readback unavailable` for `zy_range`
+
+Use `configure_test.py` to verify range changes directly on the front panel.
+
 ## Circuit Mode
 
 ### High-Level Keyword
@@ -800,6 +1021,10 @@ Right now the active driver covers:
   - `frequency_hz`
   - `bias_voltage_v`
   - `osc_level_v`
+  - `bias_enabled`
+  - `trigger_mode`
+  - `measurement_mode`
+  - `zy_range`
   - `circuit_mode`
   - `display_a`
   - `display_b`

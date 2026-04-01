@@ -8,6 +8,7 @@ This folder contains the active instrument APIs.
 - `visa.py`: PyVISA connection code.
 - `hp_4192a.py`: HP 4192A impedance-analyzer API.
 - `hp_4192a_commands.md`: working command reference for the HP 4192A.
+- `instrument_standard.md`: short repo standard for future instrument APIs.
 
 ## Default Rule For This Repo
 
@@ -70,6 +71,10 @@ Current implementation scope is intentionally small:
   - `frequency_hz`
   - `bias_voltage_v`
   - `osc_level_v`
+  - `bias_enabled`
+  - `trigger_mode`
+  - `measurement_mode`
+  - `zy_range`
   - `circuit_mode`
   - `display_a`
   - `display_b`
@@ -77,3 +82,14 @@ Current implementation scope is intentionally small:
     shared Z/Y family so the readback stays in impedance rather than admittance
 - `measure()` returns one current DISPLAY A/B numeric measurement pair using
   the instrument's present display setup
+
+Some 4192A settings are intentionally configure-only for now:
+
+- `bias_enabled`
+- `trigger_mode`
+- `measurement_mode`
+- `zy_range`
+
+Those are implemented in `configure(...)`, but not yet in `get()` or `ping()`,
+because the current driver does not have a proven safe manual-backed recall
+path for them.

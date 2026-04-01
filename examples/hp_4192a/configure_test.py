@@ -12,14 +12,17 @@ HP 4192A driver:
 - circuit mode
 - spot frequency
 - spot bias
+- bias output enable / disable
 - oscillator level
+- trigger mode
+- measurement mode
+- ZY range
 
 After each step it:
 
 1. sends one `configure(...)` call
-2. optionally pauses before `ping()` so you can look at DISPLAY C directly
-3. runs `ping()`
-4. pauses so you can compare the printed report with the front panel
+2. either runs `ping()` or tells you the step must be checked on the front panel
+3. pauses so you can compare the result with the instrument
 
 This is the script to use when you want to answer questions like:
 
@@ -52,6 +55,14 @@ from instruments import HP4192A  # noqa: E402
 
 RESOURCE = "TCPIP0::192.168.1.244::gpib0,5::INSTR"
 TIMEOUT_MS = 5000
+
+RANGE_TEST_BASE_CONFIG = {
+    "frequency_hz": 1_000.0,
+    "osc_level_v": 0.010,
+    "circuit_mode": "series",
+    "display_a": "impedance",
+    "display_b": "phase_deg",
+}
 
 
 STEPS: list[dict[str, object]] = [
@@ -112,6 +123,32 @@ STEPS: list[dict[str, object]] = [
         ],
     },
     {
+        "title": "Turn bias output on with a +1.00 V setpoint",
+        "configure_kwargs": {
+            "bias_voltage_v": 1.00,
+            "bias_enabled": True,
+        },
+        "checks": [
+            "The BIAS ON indicator should be on.",
+            "DISPLAY C may still show the bias setpoint depending on the current front-panel state.",
+            "configure() should say bias_enabled readback is unavailable because this state is not recalled safely yet.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Turn bias output off while keeping a +1.00 V bias setpoint",
+        "configure_kwargs": {
+            "bias_voltage_v": 1.00,
+            "bias_enabled": False,
+        },
+        "checks": [
+            "The BIAS ON indicator should go off.",
+            "This checks that bias output state is separate from bias_voltage_v.",
+            "configure() should say bias_enabled readback is unavailable because this state is not recalled safely yet.",
+        ],
+        "skip_ping": True,
+    },
+    {
         "title": "Set oscillator level to 0.100 V",
         "configure_kwargs": {
             "osc_level_v": 0.100,
@@ -130,6 +167,176 @@ STEPS: list[dict[str, object]] = [
             "This checks the 5 mV resolution region above 0.100 V.",
             "ping() should report oscillator level as 0.105 V.",
         ],
+    },
+    {
+        "title": "Set measurement mode to normal",
+        "configure_kwargs": {
+            "measurement_mode": "normal",
+        },
+        "checks": [
+            "The AVERAGE and HIGH SPEED indicators should both be off.",
+            "configure() should report measurement_mode readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set measurement mode to average",
+        "configure_kwargs": {
+            "measurement_mode": "average",
+        },
+        "checks": [
+            "The AVERAGE indicator should be on.",
+            "HIGH SPEED should be off.",
+            "configure() should report measurement_mode readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set measurement mode to high_speed",
+        "configure_kwargs": {
+            "measurement_mode": "high_speed",
+        },
+        "checks": [
+            "The HIGH SPEED indicator should be on.",
+            "AVERAGE should be off.",
+            "configure() should report measurement_mode readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set trigger mode to internal",
+        "configure_kwargs": {
+            "trigger_mode": "internal",
+        },
+        "checks": [
+            "The front-panel trigger mode should move to internal.",
+            "configure() should report trigger_mode readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set trigger mode to external",
+        "configure_kwargs": {
+            "trigger_mode": "external",
+        },
+        "checks": [
+            "The front-panel trigger mode should move to external.",
+            "This step skips ping() because EX-based readback may not be safe immediately after selecting external trigger.",
+            "configure() should report trigger_mode readback unavailable.",
+        ],
+        "skip_ping": True,
+        "cleanup_kwargs": {
+            "trigger_mode": "hold",
+        },
+        "cleanup_message": "The script will now restore trigger_mode='hold' so the next EX-based readback steps stay safe.",
+    },
+    {
+        "title": "Set trigger mode to hold",
+        "configure_kwargs": {
+            "trigger_mode": "hold",
+        },
+        "checks": [
+            "The front-panel trigger mode should move to hold/manual.",
+            "configure() should report trigger_mode readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to auto",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "auto",
+        },
+        "checks": [
+            "ZY RANGE should move to auto.",
+            "configure() should report zy_range readback unavailable.",
+            "The readable baseline parameters in this step should still verify successfully.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 1 ohm / 10 S",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "1_ohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 1 ohm / 10 S manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 10 ohm / 1 S",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "10_ohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 10 ohm / 1 S manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 100 ohm / 100 mS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "100_ohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 100 ohm / 100 mS manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 1 kohm / 10 mS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "1_kohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 1 kohm / 10 mS manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 10 kohm / 1 mS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "10_kohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 10 kohm / 1 mS manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 100 kohm / 100 uS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "100_kohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 100 kohm / 100 uS manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
+    },
+    {
+        "title": "Set ZY range to 1 Mohm / 10 uS",
+        "configure_kwargs": {
+            **RANGE_TEST_BASE_CONFIG,
+            "zy_range": "1_mohm",
+        },
+        "checks": [
+            "ZY RANGE should move to the 1 Mohm / 10 uS manual range.",
+            "configure() should report zy_range readback unavailable.",
+        ],
+        "skip_ping": True,
     },
     {
         "title": "Set inductance and quality factor in series mode",
@@ -209,6 +416,9 @@ def run_one_step(
     step_title: str,
     configure_kwargs: dict[str, object],
     checks: list[str],
+    skip_ping: bool,
+    cleanup_kwargs: dict[str, object] | None,
+    cleanup_message: str | None,
     index: int,
     total: int,
 ) -> None:
@@ -238,12 +448,28 @@ def run_one_step(
             "Check DISPLAY C now if you want to see whether the instrument followed the last changed numeric parameter before ping() runs."
         )
 
-    print()
-    print("ping() after configure()")
-    print("------------------------")
-    meter.ping()
+    if skip_ping:
+        wait_for_user(
+            "This step is meant for front-panel verification. Compare the instrument now before moving on."
+        )
+    else:
+        print()
+        print("ping() after configure()")
+        print("------------------------")
+        meter.ping()
 
-    wait_for_user("Compare the report with the front panel before moving to the next step.")
+        wait_for_user("Compare the report with the front panel before moving to the next step.")
+
+    if cleanup_kwargs is not None:
+        print()
+        print("Cleanup")
+        print("-------")
+        if cleanup_message is not None:
+            print(cleanup_message)
+        print("cleanup configure() call:")
+        for key, value in cleanup_kwargs.items():
+            print(f"  {key}={value!r}")
+        meter.configure(**cleanup_kwargs)
 
 
 def main() -> None:
@@ -271,6 +497,9 @@ def main() -> None:
                 step_title=step["title"],
                 configure_kwargs=step["configure_kwargs"],
                 checks=step["checks"],
+                skip_ping=step.get("skip_ping", False),
+                cleanup_kwargs=step.get("cleanup_kwargs"),
+                cleanup_message=step.get("cleanup_message"),
                 index=index,
                 total=total,
             )

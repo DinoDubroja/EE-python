@@ -6,7 +6,8 @@ Current scope:
   frequency, spot bias, and oscillator level
 - get(): read one current parameter value from the instrument
 - configure(): set spot frequency, spot bias, oscillator level, circuit mode,
-  and a small supported set of display-function pairs
+  bias enable, trigger mode, measurement mode, range selection, and a small
+  supported set of display-function pairs
 - measure(): return one current A/B measurement pair
 """
 
@@ -47,6 +48,29 @@ HP4192ACircuitMode: TypeAlias = Literal[
     "auto",
     "series",
     "parallel",
+]
+
+HP4192ATriggerMode: TypeAlias = Literal[
+    "internal",
+    "external",
+    "hold",
+]
+
+HP4192AMeasurementMode: TypeAlias = Literal[
+    "normal",
+    "average",
+    "high_speed",
+]
+
+HP4192AZYRange: TypeAlias = Literal[
+    "auto",
+    "1_ohm",
+    "10_ohm",
+    "100_ohm",
+    "1_kohm",
+    "10_kohm",
+    "100_kohm",
+    "1_mohm",
 ]
 
 HP4192AGetParameter: TypeAlias = Literal[
@@ -139,6 +163,14 @@ _DISPLAY_B_CODE_TO_GET_VALUE: dict[str, str] = {
     "UM": "unmeasure",
 }
 
+_KNOWN_DISPLAY_A_FUNCTION_CODES = set(_DISPLAY_A_CODE_TO_NAME) | set(
+    _DISPLAY_A_CODE_TO_GET_VALUE
+)
+_KNOWN_DISPLAY_B_FUNCTION_CODES = set(_DISPLAY_B_CODE_TO_NAME) | set(
+    _DISPLAY_B_CODE_TO_GET_VALUE
+)
+_KNOWN_DEVIATION_MODE_CODES = {"N", "D", "P"}
+
 _DISPLAY_A_CODE_TO_CIRCUIT_MODE: dict[str, str] = {
     "ZF": "series",
     "YF": "parallel",
@@ -152,6 +184,29 @@ _CIRCUIT_MODE_TO_CODE: dict[str, str] = {
     "auto": "C1",
     "series": "C2",
     "parallel": "C3",
+}
+
+_TRIGGER_MODE_TO_CODE: dict[str, str] = {
+    "internal": "T1",
+    "external": "T2",
+    "hold": "T3",
+}
+
+_MEASUREMENT_MODE_TO_CODES: dict[str, tuple[str, ...]] = {
+    "normal": ("V0", "H0"),
+    "average": ("V1", "H0"),
+    "high_speed": ("V0", "H1"),
+}
+
+_ZY_RANGE_TO_CODE: dict[str, str] = {
+    "1_ohm": "R1",
+    "10_ohm": "R2",
+    "100_ohm": "R3",
+    "1_kohm": "R4",
+    "10_kohm": "R5",
+    "100_kohm": "R6",
+    "1_mohm": "R7",
+    "auto": "R8",
 }
 
 _DISPLAY_C_VOLTAGE_UNIT_CODES = {"V", "Y"}
@@ -299,6 +354,8 @@ class HP4192A(Instrument):
         - spot frequency
         - spot bias
         - oscillator level
+        - not trigger mode, measurement mode, bias enable, or ZY range, because
+          those do not yet have a proven safe readback path in this driver
         
         Manual-backed readback path
         ---------------------------
@@ -415,6 +472,20 @@ class HP4192A(Instrument):
             Return `series` or `parallel` when the current DISPLAY A function
             exposes that information.
 
+        Not supported yet
+        -----------------
+        The current driver does not expose `get()` for these settings yet:
+
+        - `bias_enabled`
+        - `trigger_mode`
+        - `measurement_mode`
+        - `zy_range`
+
+        Reason:
+        The HP 4192A manual tables used by this driver do not provide a proven
+        safe recall path for those states yet, and this repo avoids returning
+        guessed or cached values as if they came from the instrument.
+
         Important limitation
         --------------------
         `circuit_mode` cannot always be read directly on the 4192A. The
@@ -468,6 +539,13 @@ class HP4192A(Instrument):
         frequency_hz: float | None = None,
         bias_voltage_v: float | None = None,
         osc_level_v: float | None = None,
+        # Bias output
+        bias_enabled: bool | None = None,
+        # Trigger and acquisition
+        trigger_mode: HP4192ATriggerMode | None = None,
+        measurement_mode: HP4192AMeasurementMode | None = None,
+        # Range
+        zy_range: HP4192AZYRange | None = None,
         # Measurement interpretation
         circuit_mode: HP4192ACircuitMode | None = None,
         # Measurement display
@@ -497,6 +575,79 @@ class HP4192A(Instrument):
             - 0.001 V from 0.005 V to 0.100 V
             - 0.005 V above 0.100 V up to 1.100 V
             Sent as raw command ``OL...EN``.
+
+        bias_enabled:
+            Enable or disable the internal DC bias output.
+            Accepted values:
+            - ``True``
+            - ``False``
+
+            Sent as raw command ``I1`` or ``I0`` from table 3-23.
+
+            Important:
+            - this is separate from `bias_voltage_v`
+            - `bias_voltage_v=0` does not mean bias output is off
+            - when `bias_enabled=False`, the current readback path reports the
+              actual output as `0 V` even if a nonzero bias value was requested
+              in the same configure() call
+            - the current driver does not yet have a proven safe readback path
+              for the bias ON/OFF state, so configure() reports this keyword as
+              `readback unavailable`
+
+        trigger_mode:
+            Measurement trigger source / behavior.
+            Accepted values:
+            - ``"internal"``
+            - ``"external"``
+            - ``"hold"``
+
+            Sent as raw command ``T1``, ``T2``, or ``T3`` from table 3-23.
+
+            The current driver does not yet have a proven safe readback path
+            for trigger mode, so configure() reports this keyword as
+            `readback unavailable`.
+
+        measurement_mode:
+            Speed / averaging behavior of the 4192A.
+            Accepted values:
+            - ``"normal"``
+            - ``"average"``
+            - ``"high_speed"``
+
+            Sent using the table 3-23 mode codes:
+            - ``normal`` -> ``V0`` and ``H0``
+            - ``average`` -> ``V1`` and ``H0``
+            - ``high_speed`` -> ``V0`` and ``H1``
+
+            The current driver does not yet have a proven safe readback path
+            for measurement mode, so configure() reports this keyword as
+            `readback unavailable`.
+
+        zy_range:
+            Impedance/admittance range selection.
+            Accepted values:
+            - ``"auto"``
+            - ``"1_ohm"``
+            - ``"10_ohm"``
+            - ``"100_ohm"``
+            - ``"1_kohm"``
+            - ``"10_kohm"``
+            - ``"100_kohm"``
+            - ``"1_mohm"``
+
+            These correspond to the HP 4192A ZY RANGE keys:
+            - ``1_ohm`` -> ``R1`` (1 ohm / 10 S)
+            - ``10_ohm`` -> ``R2`` (10 ohm / 1 S)
+            - ``100_ohm`` -> ``R3`` (100 ohm / 100 mS)
+            - ``1_kohm`` -> ``R4`` (1 kohm / 10 mS)
+            - ``10_kohm`` -> ``R5`` (10 kohm / 1 mS)
+            - ``100_kohm`` -> ``R6`` (100 kohm / 100 uS)
+            - ``1_mohm`` -> ``R7`` (1 Mohm / 10 uS)
+            - ``auto`` -> ``R8``
+
+            The current driver does not yet have a proven safe readback path
+            for the selected ZY range state, so configure() reports this
+            keyword as `readback unavailable`.
 
         circuit_mode:
             How the instrument interprets L and C displays.
@@ -549,6 +700,18 @@ class HP4192A(Instrument):
         Set frequency, bias, and oscillator level:
 
         ``meter.configure(frequency_hz=1_000, bias_voltage_v=0.5, osc_level_v=0.1)``
+
+        Turn bias output off while keeping a stored bias setpoint:
+
+        ``meter.configure(bias_voltage_v=1.0, bias_enabled=False)``
+
+        Select average mode:
+
+        ``meter.configure(measurement_mode="average")``
+
+        Select a manual impedance range:
+
+        ``meter.configure(zy_range="10_kohm")``
 
         Set inductance mode in series with quality factor:
 
@@ -611,6 +774,20 @@ class HP4192A(Instrument):
             commands.append(_format_osc_level_set_command(osc_level_v))
             latest_display_c_recall_code = "OLR"
 
+        if bias_enabled is not None:
+            bias_enabled = _validate_bool_parameter("bias_enabled", bias_enabled)
+            if bias_enabled is False and expected_bias_voltage_v is not None:
+                expected_bias_voltage_v = 0.0
+
+        if trigger_mode is not None:
+            commands.append(_get_trigger_mode_code(trigger_mode))
+
+        if measurement_mode is not None:
+            commands.extend(_get_measurement_mode_codes(measurement_mode))
+
+        if zy_range is not None:
+            commands.append(_get_zy_range_code(zy_range))
+
         if display_a is not None or display_b is not None:
             if display_a is None or display_b is None:
                 raise ValueError("display_a and display_b must be provided together")
@@ -636,11 +813,18 @@ class HP4192A(Instrument):
         if display_a is not None and display_b is not None:
             commands.extend(_get_display_pair_codes(display_a, display_b))
 
+        if bias_enabled is not None:
+            commands.append(_get_bias_enabled_code(bias_enabled))
+
         requested_items = []
         for key, value in (
             ("frequency_hz", frequency_hz),
             ("bias_voltage_v", bias_voltage_v),
             ("osc_level_v", osc_level_v),
+            ("bias_enabled", bias_enabled),
+            ("trigger_mode", trigger_mode),
+            ("measurement_mode", measurement_mode),
+            ("zy_range", zy_range),
             ("circuit_mode", effective_circuit_mode),
             ("display_a", display_a),
             ("display_b", display_b),
@@ -661,6 +845,10 @@ class HP4192A(Instrument):
                 expected_bias_voltage_v=expected_bias_voltage_v,
                 osc_level_v=osc_level_v,
                 expected_osc_level_v=expected_osc_level_v,
+                bias_enabled=bias_enabled,
+                trigger_mode=trigger_mode,
+                measurement_mode=measurement_mode,
+                zy_range=zy_range,
                 effective_circuit_mode=effective_circuit_mode,
                 display_a=display_a,
                 display_b=display_b,
@@ -729,6 +917,10 @@ class HP4192A(Instrument):
         expected_bias_voltage_v: float | None,
         osc_level_v: float | None,
         expected_osc_level_v: float | None,
+        bias_enabled: bool | None,
+        trigger_mode: HP4192ATriggerMode | None,
+        measurement_mode: HP4192AMeasurementMode | None,
+        zy_range: HP4192AZYRange | None,
         effective_circuit_mode: HP4192ACircuitMode | None,
         display_a: HP4192ADisplayA | None,
         display_b: HP4192ADisplayB | None,
@@ -755,6 +947,10 @@ class HP4192A(Instrument):
                     expected_bias_voltage_v=expected_bias_voltage_v,
                     osc_level_v=osc_level_v,
                     expected_osc_level_v=expected_osc_level_v,
+                    bias_enabled=bias_enabled,
+                    trigger_mode=trigger_mode,
+                    measurement_mode=measurement_mode,
+                    zy_range=zy_range,
                     effective_circuit_mode=effective_circuit_mode,
                     display_a=display_a,
                     display_b=display_b,
@@ -794,6 +990,10 @@ class HP4192A(Instrument):
         expected_bias_voltage_v: float | None,
         osc_level_v: float | None,
         expected_osc_level_v: float | None,
+        bias_enabled: bool | None,
+        trigger_mode: HP4192ATriggerMode | None,
+        measurement_mode: HP4192AMeasurementMode | None,
+        zy_range: HP4192AZYRange | None,
         effective_circuit_mode: HP4192ACircuitMode | None,
         display_a: HP4192ADisplayA | None,
         display_b: HP4192ADisplayB | None,
@@ -940,6 +1140,42 @@ class HP4192A(Instrument):
                         actual_circuit_mode,
                     )
                 )
+
+        if bias_enabled is not None:
+            messages.append(
+                format_configure_unverified(
+                    self.instrument_name,
+                    "bias_enabled",
+                    str(bias_enabled),
+                )
+            )
+
+        if trigger_mode is not None:
+            messages.append(
+                format_configure_unverified(
+                    self.instrument_name,
+                    "trigger_mode",
+                    trigger_mode,
+                )
+            )
+
+        if measurement_mode is not None:
+            messages.append(
+                format_configure_unverified(
+                    self.instrument_name,
+                    "measurement_mode",
+                    measurement_mode,
+                )
+            )
+
+        if zy_range is not None:
+            messages.append(
+                format_configure_unverified(
+                    self.instrument_name,
+                    "zy_range",
+                    zy_range,
+                )
+            )
 
         return messages
 
@@ -1104,6 +1340,12 @@ def _validate_osc_level_v(value: float) -> float:
     return numeric_value
 
 
+def _validate_bool_parameter(parameter_name: str, value: bool) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError(f"{parameter_name} must be bool")
+    return value
+
+
 def _require_real_number(parameter_name: str, value: float) -> float:
     if isinstance(value, bool):
         raise TypeError(f"{parameter_name} must be a real number, not bool")
@@ -1140,6 +1382,43 @@ def _get_circuit_mode_code(circuit_mode: str) -> str:
         raise ValueError(
             f"Unsupported circuit_mode {circuit_mode!r}. "
             f"Supported values: {supported_modes}"
+        ) from exc
+
+
+def _get_bias_enabled_code(bias_enabled: bool) -> str:
+    return "I1" if bias_enabled else "I0"
+
+
+def _get_trigger_mode_code(trigger_mode: str) -> str:
+    try:
+        return _TRIGGER_MODE_TO_CODE[trigger_mode]
+    except KeyError as exc:
+        supported_modes = ", ".join(sorted(_TRIGGER_MODE_TO_CODE))
+        raise ValueError(
+            f"Unsupported trigger_mode {trigger_mode!r}. "
+            f"Supported values: {supported_modes}"
+        ) from exc
+
+
+def _get_measurement_mode_codes(measurement_mode: str) -> tuple[str, ...]:
+    try:
+        return _MEASUREMENT_MODE_TO_CODES[measurement_mode]
+    except KeyError as exc:
+        supported_modes = ", ".join(sorted(_MEASUREMENT_MODE_TO_CODES))
+        raise ValueError(
+            f"Unsupported measurement_mode {measurement_mode!r}. "
+            f"Supported values: {supported_modes}"
+        ) from exc
+
+
+def _get_zy_range_code(zy_range: str) -> str:
+    try:
+        return _ZY_RANGE_TO_CODE[zy_range]
+    except KeyError as exc:
+        supported_ranges = ", ".join(sorted(_ZY_RANGE_TO_CODE))
+        raise ValueError(
+            f"Unsupported zy_range {zy_range!r}. "
+            f"Supported values: {supported_ranges}"
         ) from exc
 
 
@@ -1182,10 +1461,31 @@ def _parse_display_field(field: str, *, display_name: str) -> _DisplayField:
     if len(field) < 5:
         raise RuntimeError(f"{display_name} field was too short: {field!r}")
 
+    if display_name == "DISPLAY A":
+        known_function_codes = _KNOWN_DISPLAY_A_FUNCTION_CODES
+    else:
+        known_function_codes = _KNOWN_DISPLAY_B_FUNCTION_CODES
+
+    standard_function_code = field[1:3]
+    standard_deviation_mode = field[3]
+    if (
+        standard_function_code not in known_function_codes
+        and len(field) >= 6
+        and field[1] == field[0]
+        and field[2:4] in known_function_codes
+        and field[4] in _KNOWN_DEVIATION_MODE_CODES
+    ):
+        return _DisplayField(
+            status_code=field[0],
+            function_code=field[2:4],
+            deviation_mode_code=field[4],
+            value_text=field[5:],
+        )
+
     return _DisplayField(
         status_code=field[0],
-        function_code=field[1:3],
-        deviation_mode_code=field[3],
+        function_code=standard_function_code,
+        deviation_mode_code=standard_deviation_mode,
         value_text=field[4:],
     )
 
