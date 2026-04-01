@@ -177,8 +177,8 @@ Important:
 - if DISPLAY A is `impedance`, the driver uses series interpretation for the
   shared Z/Y family so the returned quantity is really impedance, not
   admittance
-- if the instrument reports `overflow` or `uncalibrated`, `measure()` raises an
-  error instead of returning extra status information
+- if the instrument reports `overflow` or `uncalibrated`, `measure()` returns
+  `math.nan` for that display value instead of stopping the program
 
 ### `configure()` Self-Check
 
@@ -263,8 +263,9 @@ Because `measure()` does not send `FRR`, `BIR`, or `OLR`, it does not
 intentionally change which parameter DISPLAY C is following.
 
 If DISPLAY A or DISPLAY B comes back with `O` (overflow) or `U`
-(uncalibrated), `measure()` raises an error because there is no actual numeric
-measurement to return.
+(uncalibrated), `measure()` returns `math.nan` for that display value. This
+keeps measurement loops running while still making it obvious that no actual
+numeric reading is available for that point.
 
 ### `get()` Readback
 

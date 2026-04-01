@@ -21,7 +21,7 @@ Current coverage
 This is the script to use when you want to answer questions like:
 
 - does `measure()` return the same quantity the front panel is showing?
-- does `measure()` fail cleanly when no actual numeric reading exists?
+- does `measure()` return `nan` cleanly when no actual numeric reading exists?
 - do the returned numeric values match the current display setup?
 
 How to use
@@ -37,6 +37,7 @@ How to use
 
 from __future__ import annotations
 
+import math
 from pathlib import Path
 import sys
 
@@ -86,7 +87,7 @@ def run_step(
     preparation: str,
     configure_kwargs: dict[str, object],
     checks: list[str],
-    expect_measure_error: bool = False,
+    expect_nan_measurement: bool = False,
 ) -> None:
     print()
     print("=" * 72)
@@ -122,20 +123,19 @@ def run_step(
     print()
     print("measure() result")
     print("----------------")
-    try:
-        reading = meter.measure()
-    except Exception as exc:
-        if not expect_measure_error:
-            raise
+    reading = meter.measure()
+    print_measurement(reading)
 
-        print(f"measure() raised: {exc}")
-    else:
-        if expect_measure_error:
+    if expect_nan_measurement:
+        if not (math.isnan(reading.display_a) or math.isnan(reading.display_b)):
             raise RuntimeError(
-                "measure() returned numeric values, but this step expected it to fail"
+                "measure() returned finite values, but this step expected at least one nan"
             )
-
-        print_measurement(reading)
+    else:
+        if not math.isfinite(reading.display_a) or not math.isfinite(reading.display_b):
+            raise RuntimeError(
+                "measure() returned nan for a step that expected finite values"
+            )
 
     wait_for_user("Compare the returned data with the front panel before continuing.")
 
@@ -143,7 +143,7 @@ def run_step(
 def main() -> None:
     steps = [
         {
-            "title": "Open input: measure() should fail because there is no actual reading",
+            "title": "Open input: measure() should return nan because there is no actual reading",
             "preparation": "Leave the measurement input open with no DUT connected.",
             "configure_kwargs": {
                 **KNOWN_DUT_COMMON_CONFIG,
@@ -153,9 +153,9 @@ def main() -> None:
             },
             "checks": [
                 "The instrument should be in an open-circuit condition.",
-                "measure() should raise an error instead of returning fake numeric values.",
+                "measure() should return nan instead of fake numeric values.",
             ],
-            "expect_measure_error": True,
+            "expect_nan_measurement": True,
         },
         {
             "title": "Known DUT: impedance and phase in degrees",
@@ -171,7 +171,7 @@ def main() -> None:
                 "measure() should return two numeric values only.",
                 "The numeric values should be plausible for the connected DUT.",
             ],
-            "expect_measure_error": False,
+            "expect_nan_measurement": False,
         },
         {
             "title": "Known DUT: impedance and phase in radians",
@@ -187,7 +187,7 @@ def main() -> None:
                 "DISPLAY B should show phase in radians.",
                 "measure() should now return impedance/radian-phase data for the same DUT.",
             ],
-            "expect_measure_error": False,
+            "expect_nan_measurement": False,
         },
         {
             "title": "Known DUT: inductance and quality factor in series mode",
@@ -203,7 +203,7 @@ def main() -> None:
                 "DISPLAY B should show quality factor.",
                 "measure() should return two numeric values for the current display pair.",
             ],
-            "expect_measure_error": False,
+            "expect_nan_measurement": False,
         },
         {
             "title": "Known DUT: inductance and dissipation factor in parallel mode",
@@ -219,7 +219,7 @@ def main() -> None:
                 "DISPLAY B should show dissipation factor.",
                 "measure() should return two numeric values for the current display pair.",
             ],
-            "expect_measure_error": False,
+            "expect_nan_measurement": False,
         },
         {
             "title": "Known DUT: capacitance and quality factor in series mode",
@@ -235,7 +235,7 @@ def main() -> None:
                 "DISPLAY B should show quality factor.",
                 "measure() should return two numeric values for the current display pair.",
             ],
-            "expect_measure_error": False,
+            "expect_nan_measurement": False,
         },
         {
             "title": "Known DUT: capacitance and dissipation factor in parallel mode",
@@ -251,7 +251,7 @@ def main() -> None:
                 "DISPLAY B should show dissipation factor.",
                 "measure() should return two numeric values for the current display pair.",
             ],
-            "expect_measure_error": False,
+            "expect_nan_measurement": False,
         },
     ]
 

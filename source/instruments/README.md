@@ -82,6 +82,8 @@ Current implementation scope is intentionally small:
     shared Z/Y family so the readback stays in impedance rather than admittance
 - `measure()` returns one current DISPLAY A/B numeric measurement pair using
   the instrument's present display setup
+  - if the instrument reports overflow or uncalibrated on DISPLAY A or B, the
+    returned value for that display is `nan`
 
 Some 4192A settings are intentionally configure-only for now:
 

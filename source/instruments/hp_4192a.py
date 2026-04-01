@@ -875,8 +875,11 @@ class HP4192A(Instrument):
         Status handling
         ---------------
         If DISPLAY A or DISPLAY B reports `overflow` or `uncalibrated`,
-        `measure()` raises an error instead of returning extra status fields.
-        This keeps the return value limited to actual numeric measurements only.
+        `measure()` returns `math.nan` for that display value instead of
+        raising. This keeps point-by-point measurement loops running while
+        still making invalid measurement values obvious in the returned data.
+
+        Real communication or parsing failures still raise an error.
 
         Manual-backed measurement path
         ------------------------------
@@ -1625,13 +1628,9 @@ def _try_parse_float(value_text: str) -> float | None:
 
 def _parse_numeric_measurement_field(field: _DisplayField, *, display_name: str) -> float:
     if field.status_code == "O":
-        raise RuntimeError(
-            f"{display_name} measurement overflowed; no actual numeric value is available"
-        )
+        return math.nan
     if field.status_code == "U":
-        raise RuntimeError(
-            f"{display_name} measurement is uncalibrated; no actual numeric value is available"
-        )
+        return math.nan
     if field.status_code != "N":
         raise RuntimeError(
             f"{display_name} measurement returned unknown status code {field.status_code!r}"
